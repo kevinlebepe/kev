@@ -8,6 +8,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** Extra detail from the server, for example the receipt of a closed attempt. */
+    readonly details?: unknown,
   ) {
     super(message);
   }
@@ -43,7 +45,19 @@ async function raw(method: string, path: string, body?: unknown, token = accessT
   });
 }
 
-async function refresh(): Promise<boolean> {
+// Refresh tokens rotate on every use, and the server treats a second use of the
+// same token as theft and ends the session. If several requests find the
+// access token expired at once, they must share a single refresh.
+let refreshInFlight: Promise<boolean> | null = null;
+
+function refresh(): Promise<boolean> {
+  refreshInFlight ??= doRefresh().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+async function doRefresh(): Promise<boolean> {
   const refreshToken = storedRefresh();
   if (!refreshToken) return false;
   const res = await raw('POST', '/auth/refresh', { refreshToken }, null);
@@ -61,7 +75,7 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   let res = await raw(method, path, body);
   if (res.status === 401 && (await refresh())) res = await raw(method, path, body);
   const data = res.status === 204 ? undefined : await res.json().catch(() => undefined);
-  if (!res.ok) throw new ApiError(res.status, data?.error?.message ?? `Request failed (${res.status})`);
+  if (!res.ok) throw new ApiError(res.status, data?.error?.message ?? `Request failed (${res.status})`, data?.error?.details);
   return data as T;
 }
 
