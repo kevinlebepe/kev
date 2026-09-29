@@ -54,10 +54,13 @@ export const examConfig = z.object({
   results: z
     .object({
       autoMark: z.boolean().default(true),
+      // Multiple response questions: all or nothing, or a share of the marks
+      // for each correct choice less each wrong one (never below zero).
+      partialCredit: z.enum(['none', 'proportional']).default('none'),
       releaseAt: z.iso.datetime({ offset: true }).optional(),
       moderation: z.boolean().default(false),
     })
-    .default({ autoMark: true, moderation: false }),
+    .default({ autoMark: true, partialCredit: 'none', moderation: false }),
   navigation: z
     .object({ allowBacktrack: z.boolean().default(true), randomiseQuestionOrder: z.boolean().default(false) })
     .default({ allowBacktrack: true, randomiseQuestionOrder: false }),

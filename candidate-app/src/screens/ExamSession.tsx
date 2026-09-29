@@ -568,7 +568,7 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
             </p>
             <h1 className="prompt">{question.prompt}</h1>
             <div aria-disabled={busy}>
-              <QuestionInput question={question} value={answers[question.id]} onChange={(r, d) => !busy && setAnswer(question.id, r, d)} />
+              <QuestionInput attemptId={attempt.id} question={question} value={answers[question.id]} onChange={(r, d) => !busy && setAnswer(question.id, r, d)} />
             </div>
 
             <div className="row spread">

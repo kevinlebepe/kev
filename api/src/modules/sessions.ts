@@ -26,6 +26,12 @@ const updateSessionBody = z
   })
   .refine((b) => Object.keys(b).length > 0, 'Nothing to change');
 
+const assignmentUpdateBody = z.object({
+  /** Standing extra time for this candidate, for example an accommodation. */
+  extraMinutes: z.number().int().min(0).max(600),
+  reason: z.string().trim().min(1).max(500),
+});
+
 const listQuery = pagination.extend({ status: z.enum(['scheduled', 'open', 'closed', 'cancelled']).optional() });
 
 /** Status changes a session may make. Closed and cancelled sessions are final. */
@@ -109,6 +115,37 @@ export async function sessionRoutes(app: FastifyInstance, deps: AppDeps) {
       );
       await audit(tx, { ...auditFrom(req), action: 'session.update', targetType: 'session', targetId: id, data: body });
       return updated[0];
+    });
+  });
+
+  // Extra time for one candidate. If their exam is already running, the deadline moves by the difference.
+  app.patch('/assignments/:id', { preHandler: authorize('session:manage') }, async (req) => {
+    const auth = requireOrg(req);
+    const { id } = parse(idParams, req.params);
+    const body = parse(assignmentUpdateBody, req.body);
+    return withTransaction(db, async (tx) => {
+      const { rows } = await tx.query<{ extra_minutes: number; status: string }>(
+        'SELECT extra_minutes, status FROM exam_assignments WHERE id = $1 AND organisation_id = $2 FOR UPDATE',
+        [id, auth.organisationId],
+      );
+      if (!rows[0]) throw notFound('Assignment');
+      if (['submitted', 'completed', 'revoked'].includes(rows[0].status)) throw conflict('This candidate has already finished');
+      const delta = body.extraMinutes - rows[0].extra_minutes;
+      await tx.query('UPDATE exam_assignments SET extra_minutes = $2 WHERE id = $1', [id, body.extraMinutes]);
+      const { rows: running } = await tx.query<{ id: string; deadline_at: Date }>(
+        `UPDATE attempts SET deadline_at = deadline_at + make_interval(mins => $2)
+          WHERE assignment_id = $1 AND status = 'active' RETURNING id, deadline_at`,
+        [id, delta],
+      );
+      if (running[0] && delta !== 0) {
+        await tx.query(
+          `INSERT INTO events (organisation_id, attempt_id, type, severity, occurred_at, data)
+           VALUES ($1, $2, 'time_extended', 'info', date_trunc('milliseconds', now()), $3)`,
+          [auth.organisationId, running[0].id, { minutes: delta, reason: body.reason, accommodation: true, byUserId: auth.userId }],
+        );
+      }
+      await audit(tx, { ...auditFrom(req), action: 'assignment.extra_time', targetType: 'exam_assignment', targetId: id, data: body });
+      return { id, extraMinutes: body.extraMinutes, deadlineAt: running[0]?.deadline_at.toISOString() ?? null };
     });
   });
 

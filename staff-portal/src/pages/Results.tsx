@@ -119,7 +119,7 @@ interface MarkingQuestion {
   type: string;
   prompt: string;
   options: { id: string; label: string; correct: boolean }[];
-  answer: { optionId?: string; optionIds?: string[]; text?: string } | null;
+  answer: { optionId?: string; optionIds?: string[]; text?: string; fileId?: string; name?: string } | null;
   maxPoints: number;
   awarded: number | null;
   auto: boolean;
@@ -155,7 +155,7 @@ export function Marking({ attemptId }: { attemptId: string }) {
     );
   }, [d]);
 
-  const answeredManual = d?.questions.filter((q) => !q.auto && q.answer?.text?.trim()) ?? [];
+  const answeredManual = d?.questions.filter((q) => !q.auto && (q.answer?.text?.trim() || q.answer?.fileId)) ?? [];
 
   return (
     <Page title={d ? `Marking: ${d.candidate.fullName}` : 'Marking'} back={d ? { href: href('sessions', d.sessionId, 'results'), text: 'Results' } : undefined}>
@@ -198,8 +198,16 @@ export function Marking({ attemptId }: { attemptId: string }) {
                     </>
                   ) : (
                     <>
-                      <blockquote className="answer">{q.answer?.text?.trim() ? q.answer.text : <span className="muted">Not answered. Scores 0.</span>}</blockquote>
-                      {q.answer?.text?.trim() && marks[q.id] && (
+                      {q.answer?.fileId ? (
+                        <p className="answer">
+                          <ActionButton onClick={() => download(`/marking/attempts/${attemptId}/files/${q.answer!.fileId}`, q.answer!.name ?? 'answer')}>
+                            Download {q.answer.name ?? 'the file'}
+                          </ActionButton>
+                        </p>
+                      ) : (
+                        <blockquote className="answer">{q.answer?.text?.trim() ? q.answer.text : <span className="muted">Not answered. Scores 0.</span>}</blockquote>
+                      )}
+                      {(q.answer?.text?.trim() || q.answer?.fileId) && marks[q.id] && (
                         <div className="row">
                           <label className="field narrow">
                             <span>Marks out of {q.maxPoints}</span>

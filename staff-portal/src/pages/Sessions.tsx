@@ -168,6 +168,8 @@ interface AttemptRow {
   maxScore: number | null;
   markingStatus: string | null;
   violations: number;
+  assignmentId: string;
+  extraMinutes: number;
 }
 
 const NEXT: Record<string, { status: string; text: string; confirm: string }[]> = {
@@ -297,6 +299,7 @@ export function SessionDetail({ id }: { id: string }) {
                         <th>Started</th>
                         <th>Submitted</th>
                         <th>Rule breaks</th>
+                        <th>Extra time</th>
                         <th>Score</th>
                       </tr>
                     </thead>
@@ -312,6 +315,24 @@ export function SessionDetail({ id }: { id: string }) {
                             {formatDateTime(a.submittedAt)} {a.submittedBy && a.submittedBy !== 'candidate' && <span className="muted">({label(a.submittedBy)})</span>}
                           </td>
                           <td className={a.violations ? 'bad' : ''}>{a.attemptId ? a.violations : ''}</td>
+                          <td className="small">
+                            {a.extraMinutes ? `${a.extraMinutes} min ` : ''}
+                            {can(me, 'session:manage') && !['submitted', 'completed', 'revoked'].includes(a.entitlementStatus) && (
+                              <ActionButton
+                                className="small"
+                                onClick={async () => {
+                                  const minutes = window.prompt(`Standing extra time for ${a.fullName}, in minutes (0 to remove):`, String(a.extraMinutes));
+                                  if (minutes === null) return;
+                                  const reason = window.prompt('Reason, for the record (for example an accommodation letter):');
+                                  if (!reason?.trim()) return;
+                                  await request('PATCH', `/assignments/${a.assignmentId}`, { extraMinutes: Number(minutes), reason: reason.trim() });
+                                  await attempts.reload();
+                                }}
+                              >
+                                {a.extraMinutes ? 'Change' : 'Add'}
+                              </ActionButton>
+                            )}
+                          </td>
                           <td>
                             {a.score !== null ? `${a.score} / ${a.maxScore}` : ''} {a.markingStatus === 'pending' && <Badge value="pending" />}
                           </td>

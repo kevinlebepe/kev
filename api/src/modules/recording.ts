@@ -20,6 +20,17 @@ export const MIN_PIECE_SECONDS = 10;
 export const UPLOAD_AFTER_SUBMIT_HOURS = 24;
 
 // Safari on iPhone and iPad records MP4 rather than WebM.
+/** Files a candidate may attach to a file upload question. */
+const FILE_TYPES: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+};
+export const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const fileParams = z.object({ id: z.uuid(), questionId: z.uuid() });
+const markingFileParams = z.object({ id: z.uuid(), fileId: z.uuid() });
+
 const MEDIA_TYPES: Record<string, string> = { 'video/webm': 'webm', 'audio/webm': 'webm', 'video/mp4': 'mp4', 'audio/mp4': 'm4a', 'image/jpeg': 'jpg' };
 
 const chunkParams = z.object({
@@ -46,7 +57,7 @@ export async function recordingRoutes(app: FastifyInstance, deps: AppDeps) {
   const store = deps.store!;
 
   // Recordings arrive as raw bytes, never as JSON.
-  app.addContentTypeParser(Object.keys(MEDIA_TYPES), { parseAs: 'buffer', bodyLimit: MAX_CHUNK_BYTES }, (_req, body, done) =>
+  app.addContentTypeParser([...new Set([...Object.keys(MEDIA_TYPES), ...Object.keys(FILE_TYPES)])], { parseAs: 'buffer', bodyLimit: MAX_CHUNK_BYTES }, (_req, body, done) =>
     done(null, body),
   );
 
@@ -128,6 +139,60 @@ export async function recordingRoutes(app: FastifyInstance, deps: AppDeps) {
       [id],
     );
     return { streams: expectedStreams(target.config), next: Object.fromEntries(rows.map((r) => [r.stream_type, r.next])) };
+  });
+
+  // A file for a file upload question. The answer then names it by id.
+  app.post('/attempts/:id/files/:questionId', async (req, reply) => {
+    const auth = requireCandidate(req);
+    const { id, questionId } = parse(fileParams, req.params);
+    const type = mediaType(req.headers['content-type']);
+    const ext = FILE_TYPES[type];
+    const body = req.body;
+    if (!ext || !Buffer.isBuffer(body) || body.length === 0) throw badRequest('Attach a PDF, a PNG or JPEG picture, or a Word document');
+    if (body.length > MAX_FILE_BYTES) throw badRequest('The file is larger than 10 MB');
+    const name = String(req.headers['x-file-name'] ?? 'file').replace(/[^\w .()-]/g, '_').slice(0, 200) || 'file';
+    const { rows } = await db.query<{ status: string; manifest: { questions: { id: string; type: string }[] }; expired: boolean }>(
+      `SELECT at.status, v.manifest, now() > at.deadline_at + make_interval(secs => $4) AS expired
+         FROM attempts at JOIN exam_assignments a ON a.id = at.assignment_id JOIN exam_versions v ON v.id = at.exam_version_id
+        WHERE at.id = $1 AND at.organisation_id = $2 AND a.candidate_id = $3`,
+      [id, auth.organisationId, auth.candidateId, config.attemptGraceSeconds],
+    );
+    const attempt = rows[0];
+    if (!attempt) throw notFound('Attempt');
+    if (attempt.status !== 'active' || attempt.expired) throw conflict('This attempt is closed');
+    if (attempt.manifest.questions.find((q) => q.id === questionId)?.type !== 'file_upload') throw badRequest('That question does not take a file');
+
+    const { rows: created } = await db.query<{ id: string }>('SELECT gen_random_uuid() AS id');
+    const fileId = created[0]!.id;
+    const key = `${auth.organisationId}/${id}/files/${fileId}.${ext}`;
+    await store.put(key, body);
+    await db.query(
+      `INSERT INTO attempt_files (id, attempt_id, question_id, storage_key, file_name, content_type, size_bytes, sha256)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [fileId, id, questionId, key, name, type, body.length, createHash('sha256').update(body).digest('hex')],
+    );
+    return reply.code(201).send({ fileId, name, sizeBytes: body.length });
+  });
+
+  // A marker downloads a candidate's file.
+  app.get('/marking/attempts/:id/files/:fileId', { preHandler: authorize('result:mark') }, async (req, reply) => {
+    const auth = requireOrg(req);
+    const { id, fileId } = parse(markingFileParams, req.params);
+    const { rows } = await db.query<{ storage_key: string; content_type: string; file_name: string }>(
+      `SELECT f.storage_key, f.content_type, f.file_name FROM attempt_files f JOIN attempts at ON at.id = f.attempt_id
+        WHERE f.id = $1 AND f.attempt_id = $2 AND at.organisation_id = $3 AND at.status <> 'active'`,
+      [fileId, id, auth.organisationId],
+    );
+    if (!rows[0]) throw notFound('File');
+    const object = await store.get(rows[0].storage_key);
+    if (!object) throw notFound('File');
+    return reply
+      .header('content-type', rows[0].content_type)
+      .header('content-length', object.size)
+      .header('content-disposition', `attachment; filename="${rows[0].file_name.replace(/"/g, '')}"`)
+      .header('cache-control', 'private, no-store')
+      .header('x-content-type-options', 'nosniff')
+      .send(object.stream);
   });
 
   // The app declares the last piece of each stream once it has sent everything.

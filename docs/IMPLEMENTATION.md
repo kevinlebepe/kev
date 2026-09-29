@@ -145,14 +145,14 @@ These are the things a reviewer should know are missing or limited. Each is a de
 
 **Offline**
 
-17. **The exam cannot start offline.** The package is downloaded shortly before the start, and starting needs the server. Caching an encrypted package with the key released at the start time is not built.
+17. **The exam cannot start offline, by design.** The server owns the timer, so starting needs the server once. After that, a lost connection is survived for as long as the exam's offline limit allows. Starting offline would mean trusting the device's clock for the start time, which a candidate could change to gain time; it was left out for that reason. Caching an encrypted package with the key released at the start time could be added if an organisation needs it for places with no connection at all.
 18. **Time away is recorded, not enforced.** Going past the exam's offline limit is flagged high for review; it does not end the exam, because the timer keeps running anyway and a network fault is rarely the candidate's doing.
 
 **Exams and results**
 
-19. **Marking.** Multiple response questions are all or nothing; partial credit needs an organisation policy. There is no second marker or moderation step.
-20. **Question types.** File upload questions are refused.
-21. **Retakes and accommodations.** One attempt per entitlement. Extra time can be given live, but standing per candidate accommodations are not built.
+19. **Marking.** Multiple response questions are all or nothing unless the exam turns on part marks (a share for each right choice, less each wrong one, never below zero). There is no second marker or moderation step.
+20. **File upload questions** take a PDF, PNG or JPEG picture, or Word document up to 10 MB, stored with the recordings and downloaded by the marker. Files are not scanned for viruses; markers should open them with care, and a scanning step is recommended before real use.
+21. **Retakes and accommodations.** A retake is a new assignment to another session; the first attempt and its result are kept. Standing extra time per candidate (up to 600 minutes) is set on the session page, applied when the exam starts, and moves the deadline of a running exam. Other accommodations, such as screen readers or a separate room, still need the organisation's own arrangements.
 22. **Webhooks.** The address is checked for private networks before each send, but DNS is resolved again by the request itself, so a determined DNS rebinding attack is not fully closed. A pinned resolver would close it. The row is held locked while the request runs (up to 10 seconds), which is fine at modest volume.
 
 ## How the pieces fit

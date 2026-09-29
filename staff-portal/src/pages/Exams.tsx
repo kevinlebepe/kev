@@ -299,6 +299,17 @@ function Settings({ exam, onSaved }: { exam: ExamDetailData; onSaved: () => void
         )}
       </div>
 
+      <h3>Marking</h3>
+      <Field label="Questions with several correct answers">
+        <select
+          value={(c.results as { partialCredit?: string } | undefined)?.partialCredit ?? 'none'}
+          onChange={(e) => setC({ ...c, results: { ...(c.results as object), partialCredit: e.target.value } })}
+        >
+          <option value="none">All or nothing</option>
+          <option value="proportional">Part marks: a share for each right choice, less each wrong one</option>
+        </select>
+      </Field>
+
       <h3>Devices</h3>
       <Check
         label="Laptops and desktops must use the ExamGuard desktop app"
@@ -331,13 +342,14 @@ function Settings({ exam, onSaved }: { exam: ExamDetailData; onSaved: () => void
   );
 }
 
-type QuestionType = 'mcq' | 'multiple_response' | 'true_false' | 'short_answer' | 'essay';
+type QuestionType = 'mcq' | 'multiple_response' | 'true_false' | 'short_answer' | 'essay' | 'file_upload';
 const TYPE_TEXT: Record<QuestionType, string> = {
   mcq: 'Multiple choice (one answer)',
   multiple_response: 'Multiple choice (several answers)',
   true_false: 'True or false',
   short_answer: 'Short answer (marked by a person)',
   essay: 'Essay (marked by a person)',
+  file_upload: 'File upload: PDF, picture or Word document (marked by a person)',
 };
 
 function Questions({ exam, onChanged }: { exam: ExamDetailData; onChanged: () => void }) {

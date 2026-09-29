@@ -110,6 +110,16 @@ export async function sendBlob(path: string, blob: Blob, headers: Record<string,
 }
 
 /** Signs in with a password. With two factor sign in on, returns a ticket for the code step instead. */
+/** Like sendBlob, returning the JSON reply. */
+export async function sendBlobJson<T>(path: string, blob: Blob, headers: Record<string, string>): Promise<T> {
+  const h = { 'content-type': blob.type || 'application/octet-stream', ...headers };
+  let res = await raw('POST', path, blob, accessToken, false, h);
+  if (res.status === 401 && (await refresh())) res = await raw('POST', path, blob, accessToken, false, h);
+  const data = await res.json().catch(() => undefined);
+  if (!res.ok) throw new ApiError(res.status, data?.error?.message ?? `Upload failed (${res.status})`, data?.error?.details);
+  return data as T;
+}
+
 export async function signIn(organisation: string, email: string, password: string): Promise<{ mfaToken?: string }> {
   const res = await raw('POST', '/auth/login', { organisation, email, password }, null);
   const data = await res.json().catch(() => undefined);

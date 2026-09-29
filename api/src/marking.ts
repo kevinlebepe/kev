@@ -12,7 +12,13 @@ export interface StoredAnswer {
   optionId?: string;
   optionIds?: string[];
   text?: string;
+  fileId?: string;
 }
+
+export type PartialCredit = 'none' | 'proportional';
+
+/** A free text or file answer that a marker needs to look at. */
+const hasContent = (a: StoredAnswer | undefined) => Boolean(a?.text?.trim() || a?.fileId);
 
 export const AUTO_MARKED = new Set(['mcq', 'true_false', 'multiple_response']);
 
@@ -33,12 +39,16 @@ export interface MarkResult {
   questions: QuestionMark[];
 }
 
-function autoMark(type: string, entry: KeyEntry, answer: StoredAnswer | undefined): number {
+function autoMark(type: string, entry: KeyEntry, answer: StoredAnswer | undefined, partialCredit: PartialCredit): number {
   if (!answer) return 0;
   const correct = new Set(entry.correctOptionIds);
   if (type === 'multiple_response') {
-    // All or nothing: partial credit would need a policy decision from the organisation.
     const given = new Set(answer.optionIds ?? []);
+    if (partialCredit === 'proportional' && correct.size) {
+      const right = [...given].filter((id) => correct.has(id)).length;
+      const wrong = given.size - right;
+      return Math.round(Math.max(0, (right - wrong) / correct.size) * entry.points * 100) / 100;
+    }
     return given.size === correct.size && [...given].every((id) => correct.has(id)) ? entry.points : 0;
   }
   return answer.optionId !== undefined && correct.has(answer.optionId) ? entry.points : 0;
@@ -54,6 +64,7 @@ export function markAttempt(
   key: AnswerKey,
   answers: ReadonlyMap<string, StoredAnswer>,
   manual: ReadonlyMap<string, number> = new Map(),
+  partialCredit: PartialCredit = 'none',
 ): MarkResult {
   let score = 0;
   let maxScore = 0;
@@ -66,9 +77,9 @@ export function markAttempt(
     maxScore += entry.points;
     const auto = AUTO_MARKED.has(q.type);
     let awarded: number | null;
-    if (auto) awarded = autoMark(q.type, entry, answers.get(q.id));
+    if (auto) awarded = autoMark(q.type, entry, answers.get(q.id), partialCredit);
     else if (manual.has(q.id)) awarded = Math.min(manual.get(q.id)!, entry.points);
-    else if (!answers.get(q.id)?.text?.trim()) awarded = 0;
+    else if (!hasContent(answers.get(q.id))) awarded = 0;
     else awarded = null;
 
     if (awarded === null) needsManual += 1;

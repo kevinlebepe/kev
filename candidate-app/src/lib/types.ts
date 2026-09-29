@@ -73,7 +73,7 @@ export interface ExamPackage {
   };
 }
 
-export type AnswerResponse = { optionId: string } | { optionIds: string[] } | { text: string };
+export type AnswerResponse = { optionId: string } | { optionIds: string[] } | { text: string } | { fileId: string; name?: string };
 
 export interface SavedAnswer {
   questionId: string;

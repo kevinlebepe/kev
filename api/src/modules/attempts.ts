@@ -15,6 +15,8 @@ const answerResponse = z.union([
   z.strictObject({ optionId: z.uuid() }),
   z.strictObject({ optionIds: z.array(z.uuid()).max(26) }),
   z.strictObject({ text: z.string().max(20000) }),
+  // A file already uploaded to this attempt for this question (POST /attempts/:id/files/:questionId).
+  z.strictObject({ fileId: z.uuid(), name: z.string().max(255).optional() }),
 ]);
 
 const answerBody = z.object({
@@ -120,6 +122,10 @@ function validateAnswer(q: ManifestQuestion, response: z.infer<typeof answerResp
     case 'essay':
       if (!('text' in response)) fail('expected text');
       break;
+    case 'file_upload':
+      // That the file belongs to this attempt and question is checked in applyAnswers.
+      if (!('fileId' in response)) fail('expected fileId');
+      break;
     default:
       fail(`${q.type} questions are not supported yet`);
   }
@@ -131,6 +137,14 @@ async function applyAnswers(tx: Tx, attempt: AttemptRow, answers: z.infer<typeof
     const q = byId.get(a.questionId);
     if (!q) throw badRequest(`Question ${a.questionId} is not part of this exam`);
     validateAnswer(q, a.response);
+    if ('fileId' in a.response) {
+      const { rowCount } = await tx.query('SELECT 1 FROM attempt_files WHERE id = $1 AND attempt_id = $2 AND question_id = $3', [
+        a.response.fileId,
+        attempt.id,
+        a.questionId,
+      ]);
+      if (!rowCount) throw badRequest(`Invalid answer for question ${a.questionId}: unknown file`);
+    }
   }
   // A later entry for the same question in one batch supersedes an earlier one.
   const latest = new Map<string, (typeof answers)[number]>();
@@ -239,8 +253,9 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
         config: unknown;
         attempt_id: string | null;
         platform: string | null;
+        extra_minutes: number;
       }>(
-        `SELECT a.status, c.status AS candidate_status, s.status AS session_status, s.starts_at, s.ends_at,
+        `SELECT a.status, a.extra_minutes, c.status AS candidate_status, s.status AS session_status, s.starts_at, s.ends_at,
                 s.exam_version_id, v.manifest->'config' AS config,
                 (SELECT id FROM attempts WHERE assignment_id = a.id) AS attempt_id,
                 now() < s.starts_at AS before_start,
@@ -287,8 +302,9 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
 
       const { rows: created } = await tx.query<{ id: string }>(
         `INSERT INTO attempts (organisation_id, assignment_id, exam_version_id, deadline_at)
-         VALUES ($1, $2, $3, LEAST(now() + make_interval(mins => $4), $5)) RETURNING id`,
-        [auth.organisationId, assignmentId, row.exam_version_id, duration, row.ends_at],
+         VALUES ($1, $2, $3, LEAST(now() + make_interval(mins => $4), $5::timestamptz + make_interval(mins => $6))) RETURNING id`,
+        // Standing extra time (an accommodation) also lets the attempt run past the session's end by as much.
+        [auth.organisationId, assignmentId, row.exam_version_id, duration + row.extra_minutes, row.ends_at, row.extra_minutes],
       );
       const attemptId = created[0]!.id;
       await tx.query(`UPDATE exam_assignments SET status = 'active' WHERE id = $1`, [assignmentId]);
@@ -481,6 +497,7 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
     if (!rowCount) throw notFound('Session');
     const { rows } = await db.query(
       `SELECT c.id AS "candidateId", c.full_name AS "fullName", a.id AS "assignmentId", a.status AS "entitlementStatus",
+              a.extra_minutes AS "extraMinutes",
               at.id AS "attemptId", at.status, at.started_at AS "startedAt", at.submitted_at AS "submittedAt",
               at.submitted_by AS "submittedBy", r.score::float AS score, r.max_score::float AS "maxScore", r.status AS "markingStatus",
               (SELECT count(*)::int FROM events ev WHERE ev.attempt_id = at.id AND ev.type = ANY($5::text[])) AS violations

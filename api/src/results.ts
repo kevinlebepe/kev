@@ -1,5 +1,6 @@
 import type { Queryable } from './db.js';
-import { type AnswerKey, markAttempt, type MarkResult, type StoredAnswer } from './marking.js';
+import { type AnswerKey, markAttempt, type MarkResult, type PartialCredit, type StoredAnswer } from './marking.js';
+import { examConfig } from './examConfig.js';
 
 export interface MarkingInput {
   organisationId: string;
@@ -7,10 +8,11 @@ export interface MarkingInput {
   answerKey: AnswerKey;
   answers: Map<string, StoredAnswer>;
   manual: Map<string, { points: number; comment: string | null }>;
+  partialCredit: PartialCredit;
 }
 
 export async function loadMarkingInput(q: Queryable, attemptId: string): Promise<MarkingInput> {
-  const { rows } = await q.query<{ organisation_id: string; manifest: { questions: MarkingInput['questions'] }; answer_key: AnswerKey }>(
+  const { rows } = await q.query<{ organisation_id: string; manifest: { questions: MarkingInput['questions']; config?: unknown }; answer_key: AnswerKey }>(
     `SELECT at.organisation_id, v.manifest, v.answer_key
        FROM attempts at JOIN exam_versions v ON v.id = at.exam_version_id WHERE at.id = $1`,
     [attemptId],
@@ -30,6 +32,7 @@ export async function loadMarkingInput(q: Queryable, attemptId: string): Promise
     answerKey: row.answer_key,
     answers: new Map(answers.map((a) => [a.question_id, a.response])),
     manual: new Map(manual.map((m) => [m.question_id, { points: Number(m.points), comment: m.comment }])),
+    partialCredit: examConfig.parse(row.manifest.config ?? {}).results.partialCredit,
   };
 }
 
@@ -39,6 +42,7 @@ export function markFrom(input: MarkingInput): MarkResult {
     input.answerKey,
     input.answers,
     new Map([...input.manual].map(([id, m]) => [id, m.points])),
+    input.partialCredit,
   );
 }
 
