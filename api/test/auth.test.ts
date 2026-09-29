@@ -49,3 +49,22 @@ describe('authentication', () => {
     expect((await call(h, 'GET', '/me', org.owner)).status).toBe(401);
   });
 });
+
+describe('login rate limit', () => {
+  it('cannot be bypassed by rotating X-Forwarded-For', async () => {
+    const { buildApp } = await import('../src/app.js');
+    const app = await buildApp({ db: h.db, config: { ...h.config, authRateLimitPerMinute: 3 } });
+    const statuses: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        headers: { 'x-forwarded-for': `203.0.113.${i}` },
+        payload: { email: 'nobody@example.com', password: 'wrong-password-123' },
+      });
+      statuses.push(res.statusCode);
+    }
+    await app.close();
+    expect(statuses).toEqual([401, 401, 401, 429, 429]);
+  });
+});

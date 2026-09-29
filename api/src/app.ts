@@ -12,7 +12,7 @@ import { invigilationRoutes } from './modules/invigilation.js';
 import { candidateAppRoutes } from './modules/candidateApp.js';
 
 export async function buildApp(deps: AppDeps, opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: opts.logger ?? false, trustProxy: true, bodyLimit: 5 * 1024 * 1024 });
+  const app = Fastify({ logger: opts.logger ?? false, trustProxy: deps.config.trustProxy, bodyLimit: 5 * 1024 * 1024 });
 
   // Rate limits apply only where a route opts in (auth and public onboarding).
   // Production should back this with Redis so limits hold across instances.

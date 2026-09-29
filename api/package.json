@@ -4,12 +4,14 @@
   "description": "ExamGuard platform API (MVP-1 foundation)",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "start": "tsx src/server.ts",
-    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "migrate": "tsx src/scripts/migrate.ts",
-    "seed": "tsx src/scripts/seed.ts",
-    "test": "vitest run"
+    "migrate": "node dist/scripts/migrate.js",
+    "seed": "node dist/scripts/seed.js",
+    "test": "vitest run",
+    "migrate:dev": "tsx src/scripts/migrate.ts",
+    "seed:dev": "tsx src/scripts/seed.ts"
   },
   "license": "UNLICENSED",
   "dependencies": {

@@ -62,6 +62,20 @@ export async function invigilationRoutes(app: FastifyInstance, deps: AppDeps) {
          ON CONFLICT (organisation_id, user_id) DO NOTHING`,
         [auth.organisationId, user.id, await roleIdByKey(tx, auth.organisationId, 'invigilator')],
       );
+      // An existing member keeps their role, so it must already allow the live
+      // console. Changing it here could silently demote an owner or admin.
+      const { rows: access } = await tx.query<{ role: string; live: boolean }>(
+        `SELECT r.key AS role,
+                EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = ou.role_id AND rp.permission_key = 'live:view') AS live
+           FROM organisation_users ou JOIN roles r ON r.id = ou.role_id
+          WHERE ou.organisation_id = $1 AND ou.user_id = $2`,
+        [auth.organisationId, user.id],
+      );
+      if (!access[0]?.live) {
+        throw conflict(
+          `This user already has the ${access[0]?.role ?? 'unknown'} role, which cannot open the live console; change their role first`,
+        );
+      }
       const { rows } = await tx
         .query<{ id: string }>(
           `INSERT INTO invigilators (organisation_id, user_id, staff_id, max_active) VALUES ($1, $2, $3, $4) RETURNING id`,

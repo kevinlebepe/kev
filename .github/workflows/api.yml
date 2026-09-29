@@ -33,6 +33,7 @@ jobs:
           cache-dependency-path: api/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run build
       - run: npm test
         env:
           TEST_DATABASE_URL: postgres://examguard:examguard@localhost:5432/examguard_test

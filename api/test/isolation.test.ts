@@ -63,6 +63,22 @@ describe('tenant isolation and RBAC', () => {
     expect(escalate.status).toBe(403);
   });
 
+  it('refuses to make an existing member an invigilator when their role cannot open the live console', async () => {
+    const org = await createOrg(h);
+    const email = `manager-${org.slug}@x.example`;
+    await call(h, 'POST', `/organisations/${org.id}/users`, org.owner, {
+      email,
+      displayName: 'Manager',
+      password: 'correct-horse-battery-staple',
+      role: 'exam_manager',
+    });
+    const res = await call(h, 'POST', '/invigilators', org.owner, { email, displayName: 'Manager' });
+    expect(res.status).toBe(409);
+    expect(res.body.error.message).toMatch(/exam_manager/);
+    const { rowCount } = await h.db.query('SELECT 1 FROM invigilators WHERE organisation_id = $1', [org.id]);
+    expect(rowCount).toBe(0);
+  });
+
   it('non-super-admins cannot create organisations', async () => {
     const org = await createOrg(h);
     const res = await call(h, 'POST', '/platform/organisations', org.owner, {

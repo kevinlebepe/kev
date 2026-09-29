@@ -29,9 +29,24 @@ function loadSigningKey(): { privateKey: KeyObject; publicKey: KeyObject; keyId:
   return { privateKey, publicKey, keyId: 'dev-ephemeral' };
 }
 
+/**
+ * Which proxies may set X-Forwarded-For. Off by default: trusting the header
+ * from anyone lets a client rotate it and escape per-IP rate limits. Set
+ * TRUST_PROXY to the load balancer's addresses or CIDRs (comma separated)
+ * when running behind one.
+ */
+export type TrustProxy = boolean | string;
+
+function parseTrustProxy(raw: string | undefined): TrustProxy {
+  if (!raw || raw === 'false') return false;
+  if (raw === 'true') return true;
+  return raw;
+}
+
 export interface Config {
   databaseUrl: string;
   port: number;
+  trustProxy: TrustProxy;
   jwtSecret: Uint8Array;
   accessTokenTtlSeconds: number;
   refreshTokenTtlSeconds: number;
@@ -48,6 +63,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
   return {
     databaseUrl: required('DATABASE_URL', 'postgres://examguard:examguard@localhost:5432/examguard'),
     port: Number(process.env.PORT ?? 3000),
+    trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
     jwtSecret: new TextEncoder().encode(secret('JWT_SECRET', 'dev-only-jwt-secret-change-me-0123456789')),
     accessTokenTtlSeconds: Number(process.env.ACCESS_TOKEN_TTL_SECONDS ?? 900),
     refreshTokenTtlSeconds: Number(process.env.REFRESH_TOKEN_TTL_SECONDS ?? 60 * 60 * 24 * 14),

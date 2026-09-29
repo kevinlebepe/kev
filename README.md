@@ -32,8 +32,8 @@ docker compose up -d postgres        # or use any local PostgreSQL 16
 cd api
 npm install
 cp .env.example .env                 # development defaults work as they are
-npm run migrate
-SUPER_ADMIN_EMAIL=you@example.com SUPER_ADMIN_PASSWORD='a long password' npm run seed
+npm run migrate:dev
+SUPER_ADMIN_EMAIL=you@example.com SUPER_ADMIN_PASSWORD='a long password' npm run seed:dev
 npm run dev                          # http://localhost:3000/health
 ```
 
@@ -62,6 +62,17 @@ npm run dev          # http://localhost:5173, proxies /api to localhost:3000
 ```
 
 Candidates sign in with the organisation slug (for example `demo-uni`), their email and password.
+
+## Production
+
+```bash
+cd api
+npm ci && npm run build              # compiles src/ to dist/
+npm ci --omit=dev                    # runtime dependencies only
+NODE_ENV=production npm run migrate  # then: NODE_ENV=production npm start
+```
+
+In production the API refuses to start without `JWT_SECRET`, `EXAM_SIGNING_PRIVATE_KEY` and `EXAM_SIGNING_KEY_ID`. Behind a load balancer, set `TRUST_PROXY` to its addresses so rate limits see real client IPs; see `api/.env.example`.
 
 ## Tests
 
