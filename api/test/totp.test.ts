@@ -33,8 +33,11 @@ describe('two factor codes', () => {
     const sealed = sealSecret('JBSWY3DPEHPK3PXP', server);
     expect(sealed).not.toContain('JBSWY3DP');
     expect(openSecret(sealed, server)).toBe('JBSWY3DPEHPK3PXP');
+    // Flip one bit of the encrypted bytes (changing base64 text alone can land in unused padding bits).
     const parts = sealed.split('.');
-    parts[2] = parts[2]!.slice(0, -2) + (parts[2]!.endsWith('AA') ? 'AB' : 'AA');
+    const data = Buffer.from(parts[2]!, 'base64url');
+    data[0] = data[0]! ^ 1;
+    parts[2] = data.toString('base64url');
     expect(() => openSecret(parts.join('.'), server)).toThrow();
     expect(() => openSecret(sealed, new TextEncoder().encode('another secret'))).toThrow();
   });
