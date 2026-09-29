@@ -43,6 +43,8 @@ async function viewer(q: Queryable, auth: OrgAuth): Promise<Viewer> {
   const inv = rows[0];
   if (inv) {
     if (inv.status === 'suspended') throw forbidden('Invigilator access is suspended');
+    // Having the console open is what keeps an invigilator's candidates with them (see failover.ts).
+    await q.query('UPDATE invigilators SET last_seen_at = now() WHERE id = $1', [inv.id]);
     return { invigilatorId: inv.id, scope: 'invigilator', status: inv.status, maxActive: inv.max_active };
   }
   if (auth.permissions.has('session:manage')) return { invigilatorId: null, scope: 'supervisor', status: null, maxActive: 0 };

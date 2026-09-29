@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ActionButton, Badge, ErrorText, Field, Form, Loading, Page } from '../components/ui';
 import { request } from '../lib/api';
 import { useApi } from '../lib/useApi';
+import { connected } from '../lib/format';
 
 interface Invigilator {
   id: string;
@@ -11,6 +12,7 @@ interface Invigilator {
   maxActive: number;
   load: number;
   liveStatus: string;
+  lastSeenAt: string | null;
 }
 
 export function Invigilators() {
@@ -42,7 +44,7 @@ export function Invigilators() {
                 <td>{i.displayName}</td>
                 <td>{i.email}</td>
                 <td>
-                  <Badge value={i.status} />
+                  <Badge value={i.status} /> {connected(i.lastSeenAt) && <Badge value="connected" tone="ok" />}
                 </td>
                 <td>
                   {i.load} of {Math.min(i.maxActive, 10)} <Badge value={i.liveStatus} />

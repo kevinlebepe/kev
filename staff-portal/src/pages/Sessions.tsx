@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ActionButton, Badge, ErrorText, Field, Form, Loading, Page, Stat } from '../components/ui';
 import { request } from '../lib/api';
-import { formatDateTime, isoToLocal, label, localToIso } from '../lib/format';
+import { connected, formatDateTime, formatTime, isoToLocal, label, localToIso } from '../lib/format';
 import { href, navigate } from '../lib/router';
 import { can, useMe } from '../lib/session';
 import { useApi } from '../lib/useApi';
@@ -151,7 +151,7 @@ interface SessionStatus {
   invigilation: {
     covered: number;
     uncovered: number;
-    invigilators: { id: string; displayName: string; status: string; load: number }[];
+    invigilators: { id: string; displayName: string; status: string; load: number; lastSeenAt: string | null }[];
   };
 }
 
@@ -263,13 +263,21 @@ export function SessionDetail({ id }: { id: string }) {
 
             <section className="card">
               <h2>Invigilators on this session</h2>
+              <p className="muted small">
+                While the session is open, candidates of an invigilator who is paused or has not had the live console open for 2 minutes move to one who is
+                connected and has room.
+              </p>
               {s.invigilation.invigilators.length === 0 ? (
                 <p className="muted">None rostered yet.</p>
               ) : (
                 <ul className="plain">
                   {s.invigilation.invigilators.map((i) => (
                     <li key={i.id}>
-                      {i.displayName} <Badge value={i.status} /> <span className="muted small">{i.load} candidates in this session</span>
+                      {i.displayName} <Badge value={i.status} />{' '}
+                      {connected(i.lastSeenAt) ? <Badge value="connected" tone="ok" /> : <Badge value="not_connected" tone="muted" />}{' '}
+                      <span className="muted small">
+                        {i.load} candidates in this session{i.lastSeenAt && !connected(i.lastSeenAt) ? `, last seen ${formatTime(i.lastSeenAt)}` : ''}
+                      </span>
                     </li>
                   ))}
                 </ul>

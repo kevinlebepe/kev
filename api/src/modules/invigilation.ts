@@ -103,7 +103,7 @@ export async function invigilationRoutes(app: FastifyInstance, deps: AppDeps) {
       maxActive: number;
       load: number;
     }>(
-      `SELECT i.id, u.display_name AS "displayName", u.email, i.status, i.max_active AS "maxActive",
+      `SELECT i.id, u.display_name AS "displayName", u.email, i.status, i.max_active AS "maxActive", i.last_seen_at AS "lastSeenAt",
               (SELECT count(*)::int FROM invigilation_assignments ia WHERE ia.invigilator_id = i.id AND ia.active) AS load
          FROM invigilators i JOIN users u ON u.id = i.user_id
         WHERE i.organisation_id = $1

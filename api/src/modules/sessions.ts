@@ -138,7 +138,7 @@ export async function sessionRoutes(app: FastifyInstance, deps: AppDeps) {
       [id],
     );
     const { rows: invigilators } = await db.query(
-      `SELECT i.id, u.display_name AS "displayName", i.status,
+      `SELECT i.id, u.display_name AS "displayName", i.status, i.last_seen_at AS "lastSeenAt",
               (SELECT count(*)::int FROM invigilation_assignments ia
                 WHERE ia.invigilator_id = i.id AND ia.session_id = $1 AND ia.active) AS load
          FROM session_invigilators si

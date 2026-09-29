@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { describeDetails } from '../src/lib/api';
-import { formatDuration, isoToLocal, label, parseCandidateCsv } from '../src/lib/format';
+import { connected, formatDuration, isoToLocal, label, parseCandidateCsv } from '../src/lib/format';
 import { parseHash } from '../src/lib/router';
 import { withDefaults } from '../src/pages/Exams';
 import { presence } from '../src/pages/Live';
@@ -65,5 +65,14 @@ describe('live presence', () => {
     expect(presence({ ...base, attemptStatus: 'active', online: false })).toEqual({ text: 'Not responding', tone: 'bad' });
     expect(presence({ ...base, attemptStatus: 'submitted', submittedBy: 'candidate' }).text).toBe('Submitted');
     expect(presence({ ...base, attemptStatus: 'submitted', submittedBy: 'system' }).text).toBe('Ended early');
+  });
+});
+
+describe('invigilator presence', () => {
+  it('counts an invigilator as connected for 2 minutes after the console last checked in', () => {
+    const now = Date.parse('2030-01-01T10:00:00Z');
+    expect(connected('2030-01-01T09:59:00Z', now)).toBe(true);
+    expect(connected('2030-01-01T09:57:00Z', now)).toBe(false);
+    expect(connected(null, now)).toBe(false);
   });
 });

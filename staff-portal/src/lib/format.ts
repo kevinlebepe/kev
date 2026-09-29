@@ -72,3 +72,8 @@ function splitCsvLine(line: string): string[] {
   out.push(cur);
   return out;
 }
+
+/** An invigilator with the live console open checks in every few seconds. */
+export function connected(lastSeenAt: string | null | undefined, now = Date.now()): boolean {
+  return Boolean(lastSeenAt && now - Date.parse(lastSeenAt) < 120_000);
+}
