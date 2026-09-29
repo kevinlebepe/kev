@@ -118,6 +118,14 @@ export function authorize(...required: PermissionKey[]): preHandlerAsyncHookHand
   };
 }
 
+/** Passes when the caller has at least one of the permissions. */
+export function authorizeAny(...anyOf: PermissionKey[]): preHandlerAsyncHookHandler {
+  return async (req) => {
+    const auth = requireOrg(req);
+    if (!anyOf.some((p) => auth.permissions.has(p))) throw forbidden(`Missing permission: one of ${anyOf.join(', ')}`);
+  };
+}
+
 export const requireSuperAdmin: preHandlerAsyncHookHandler = async (req) => {
   if (!requireAuth(req).isSuperAdmin) throw forbidden('Platform super admin only');
 };

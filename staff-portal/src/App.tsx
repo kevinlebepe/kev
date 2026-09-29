@@ -9,7 +9,7 @@ import { Exams, ExamDetail } from './pages/Exams';
 import { Sessions, SessionDetail } from './pages/Sessions';
 import { Invigilators } from './pages/Invigilators';
 import { LiveSessions, LiveConsole } from './pages/Live';
-import { Results, Marking } from './pages/Results';
+import { MarkingSessions, Results, Marking } from './pages/Results';
 import { Staff } from './pages/Staff';
 import { Audit } from './pages/Audit';
 
@@ -23,6 +23,7 @@ const NAV: NavItem[] = [
   { path: 'live', text: 'Live console', permission: 'live:view' },
   { path: 'sessions', text: 'Sessions', permission: 'session:manage' },
   { path: 'exams', text: 'Exams', permission: 'exam:create' },
+  { path: 'marking', text: 'Marking and results', permission: 'report:view' },
   { path: 'candidates', text: 'Candidates', permission: 'candidate:view' },
   { path: 'invigilators', text: 'Invigilators', permission: 'invigilator:create' },
   { path: 'staff', text: 'Staff', permission: 'organisation:manage_users' },
@@ -115,7 +116,7 @@ function render(section: string | undefined, id: string | undefined, sub: string
       if (id && sub === 'results') return <Results sessionId={id} />;
       return id ? <SessionDetail id={id} /> : <Sessions />;
     case 'marking':
-      return id ? <Marking attemptId={id} /> : <NotFound />;
+      return id ? <Marking attemptId={id} /> : <MarkingSessions />;
     case 'invigilators':
       return <Invigilators />;
     case 'live':

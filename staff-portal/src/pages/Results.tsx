@@ -35,7 +35,7 @@ export function Results({ sessionId }: { sessionId: string }) {
   return (
     <Page
       title="Results"
-      back={{ href: href('sessions', sessionId), text: 'Session' }}
+      back={can(me, 'session:manage') ? { href: href('sessions', sessionId), text: 'Session' } : { href: href('marking'), text: 'Marking and results' }}
       actions={
         <>
           <ActionButton onClick={() => download(`/sessions/${sessionId}/results?format=csv`, 'results.csv')}>Download CSV</ActionButton>
@@ -301,5 +301,57 @@ function Recordings({ attemptId }: { attemptId: string }) {
         </div>
       ))}
     </section>
+  );
+}
+
+interface SessionRow {
+  id: string;
+  name: string;
+  status: string;
+  startsAt: string;
+  examName: string;
+  candidates: number;
+  submitted: number;
+}
+
+/** Sessions with work to mark or results to release. */
+export function MarkingSessions() {
+  const list = useApi<{ items: SessionRow[] }>('/sessions?limit=100');
+  const items = (list.data?.items ?? []).filter((s) => s.submitted > 0);
+  return (
+    <Page title="Marking and results">
+      <p className="muted">Sessions where candidates have submitted. Open one to mark free text answers and release results.</p>
+      <ErrorText error={list.error} />
+      <Loading loading={list.loading} empty={items.length === 0 && 'Nobody has submitted an exam yet.'}>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Session</th>
+                <th>Exam</th>
+                <th>Started</th>
+                <th>Submitted</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((s) => (
+                <tr key={s.id}>
+                  <td>{s.name}</td>
+                  <td>{s.examName}</td>
+                  <td>{formatDateTime(s.startsAt)}</td>
+                  <td>
+                    {s.submitted} of {s.candidates}
+                  </td>
+                  <td>
+                    <a href={href('sessions', s.id, 'results')}>Open results</a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Loading>
+    </Page>
   );
 }

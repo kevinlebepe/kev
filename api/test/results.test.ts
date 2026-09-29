@@ -98,6 +98,9 @@ describe('marking and results', () => {
     const reviewer = (await login(h, org.slug, email)).accessToken;
     expect((await call(h, 'GET', `/marking/attempts/${c.attemptId}`, reviewer)).status).toBe(200);
     expect((await call(h, 'POST', `/sessions/${c.sessionId}/results/release`, reviewer)).status).toBe(403);
+    // A marker finds the sessions to mark, but cannot change them.
+    expect((await call(h, 'GET', '/sessions', reviewer)).body.items.map((x: { id: string }) => x.id)).toContain(c.sessionId);
+    expect((await call(h, 'PATCH', `/sessions/${c.sessionId}`, reviewer, { status: 'closed' })).status).toBe(403);
     // A candidate cannot mark their own work.
     expect((await call(h, 'GET', `/marking/attempts/${c.attemptId}`, c.token)).status).toBe(403);
   });

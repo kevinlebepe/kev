@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { AppDeps } from '../context.js';
 import { withTransaction } from '../db.js';
 import { badRequest, conflict, notFound } from '../errors.js';
-import { authorize, requireOrg } from '../auth/context.js';
+import { authorize, authorizeAny, requireOrg } from '../auth/context.js';
 import { audit, auditFrom } from '../audit.js';
 import { notify } from '../notifications.js';
 import { idParams, page, pagination, parse } from '../validation.js';
@@ -65,7 +65,8 @@ export async function sessionRoutes(app: FastifyInstance, deps: AppDeps) {
     return reply.code(201).send(session);
   });
 
-  app.get('/sessions', { preHandler: authorize('session:manage') }, async (req) => {
+  // Session managers, and markers and reviewers looking for work to mark.
+  app.get('/sessions', { preHandler: authorizeAny('session:manage', 'report:view') }, async (req) => {
     const auth = requireOrg(req);
     const { limit, offset, status } = parse(listQuery, req.query);
     const { rows } = await db.query(

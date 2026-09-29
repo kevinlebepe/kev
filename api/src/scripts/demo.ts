@@ -57,7 +57,14 @@ const exam = await call('POST', '/exams', owner, {
     // Generous start window so the demo stays usable for the whole session.
     timing: { durationMinutes: 120, startWindowMinutes: 170 },
     // Leaving the exam is warned about three times; the fourth ends it.
-    security: { camera: true, microphone: true, violationPolicy: 'warn_then_submit', maxViolations: 3 },
+    // RECORD_SCREEN=1 also records the screen (the browser asks to share it).
+    security: {
+      camera: true,
+      microphone: true,
+      screenCapture: process.env.RECORD_SCREEN === '1',
+      violationPolicy: 'warn_then_submit',
+      maxViolations: 3,
+    },
     // Browsers report a storage quota, not free disk space, so keep this low for the demo.
     device: {
       supportedOs: ['windows', 'macos', 'linux', 'chromeos', 'android', 'ios'],
@@ -93,14 +100,30 @@ const session = await call('POST', '/sessions', owner, {
   endsAt: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
 });
 await call('POST', '/assignments', owner, { sessionId: session.id, candidateIds: [candidateId] });
+await call('PATCH', `/sessions/${session.id}`, owner, { status: 'open' });
+
+// Staff to try the portal with: an invigilator watching the candidate, and a marker.
+const invigilatorEmail = `invigilator@${slug}.example`;
+const markerEmail = `marker@${slug}.example`;
+const invigilator = await call('POST', '/invigilators', owner, { email: invigilatorEmail, displayName: 'Demo Invigilator', password: PASSWORD });
+await call('POST', `/sessions/${session.id}/invigilators`, owner, { invigilatorIds: [invigilator.id] });
+await call('POST', '/live/assignments', owner, { mode: 'auto', sessionId: session.id });
+const org = (await call('GET', '/me', owner)).organisationId;
+await call('POST', `/organisations/${org}/users`, owner, { email: markerEmail, displayName: 'Demo Marker', role: 'reviewer', password: PASSWORD });
 
 console.log(`
-Demo ready. Open http://localhost:5173 and sign in as the candidate:
+Demo ready. Every account uses the password ${PASSWORD}
+and the organisation code ${slug}
 
+Candidate app, http://localhost:5173
   Institution or organisation:  ${slug}
   Email:                        ${loginEmail}
   Password:                     ${PASSWORD}
 
-Organisation owner (for API calls): owner@${slug}.example / ${PASSWORD}
+Staff portal, http://localhost:5174
+  Owner (everything):           owner@${slug}.example
+  Invigilator (live console):   ${invigilatorEmail}
+  Marker (marking):             ${markerEmail}
+
 The exam session is open now and runs for 3 hours. The exam itself lasts 2 hours.
 `);
