@@ -1,6 +1,6 @@
 # Implementation Notes
 
-Status as at 29 September 2026 (MVP 1, MVP 2 and MVP 3 except recording, plus the exam rules layer from MVP 7). This file maps the handoff specification (v2.0) to the code and lists what remains.
+Status as at 29 September 2026 (MVP 1, MVP 2 and MVP 3 except recording, the exam rules layer from MVP 7, and the first version of the desktop application). This file maps the handoff specification (v2.0) to the code and lists what remains.
 
 ## What is built
 
@@ -34,6 +34,7 @@ Two decisions differ slightly from the specification's wording:
 | Readiness | `GET /sessions/:id/readiness` | `session:manage` |
 | Attempts | `POST /attempts/start`, `GET /attempts/:id`, `PATCH /attempts/:id/state`, `POST /attempts/:id/submit` | signed in candidate |
 | Exam rules | `POST /attempts/:id/events` | signed in candidate |
+| Desktop application | request header `x-examguard-client`, device check fields `appKind` and `restrictedApps` | signed in candidate |
 | Attempt overview and timeline | `GET /sessions/:id/attempts`, `GET /attempts/:id/timeline` | `report:view` |
 
 ### Specification requirements covered
@@ -78,6 +79,13 @@ Two decisions differ slightly from the specification's wording:
 | The server counts violations and applies the exam's policy: record, warn then submit, or submit at once (s18) | `rules.ts`, `POST /attempts/:id/events`; the app cannot change the outcome, and a policy claimed by the app is ignored |
 | Violations cannot be hidden by going offline; events are kept on the device and delivered later (s11) | `lib/eventReporter.ts`; events carry an id so retries never double count |
 | Technical events are presented as events, with the organisation deciding the consequence (s18) | `violationPolicy` in the exam's security config; default is `flag` |
+| Computers must use the desktop application; phones, tablets and Chromebooks use the browser (s9, s13) | `device.requireDesktopApp`; `client.ts` decides from the client kind and the platform the device check reported; the package and the start of an attempt are refused otherwise, so the questions never reach a browser on a computer |
+| The website hands the candidate to the application (s9) | "Open in the ExamGuard app" button, `examguard://open?exam=...` link, handled by `desktop-app/src/launch.ts`; only the exam id travels, never an address or a password |
+| Kiosk window: full screen, always on top, cannot be minimised or resized, no menu shortcuts, clipboard cleared, focus taken back (s9) | `desktop-app/src/lockdown.ts` |
+| Closing, quitting, reloading, developer tools, zoom and new window keys are swallowed and reported; closing the window is intercepted (s9) | `desktop-app/src/shortcuts.ts`, `main.ts`; the exam's policy applies |
+| Screen capture of the exam window is blocked (s9) | `setContentProtection` (see gap 18) |
+| Real screen count, free disk, virtual machine hints and screen sharing or remote control programs (s10) | `desktop-app/src/system.ts`; a program from the list fails the device check and is named; another screen appearing during the exam is a counted violation |
+| The page can only reach ExamGuard: no other sites, no new windows, no Node, only camera, microphone and full screen granted (s19) | `desktop-app/src/navigation.ts`, `preload.ts`, sandboxed window |
 | API instances survive a database failover (s17) | pool error handler in `db.ts`; `test/resilience.test.ts` |
 | CI with typecheck, tests and dependency audit (s21) | `.github/workflows/api.yml`, `.github/workflows/candidate-app.yml` |
 
@@ -90,7 +98,7 @@ Two decisions differ slightly from the specification's wording:
 5. **Database level tenant isolation.** Isolation is enforced in application queries and covered by tests. PostgreSQL row level security would add a second layer.
 6. **Staff onboarding.** New staff and invigilators are created with a password set by an administrator. An emailed invitation flow like the one for candidates should replace this.
 7. **Invigilator failover.** Assignments are preserved when an invigilator is paused. Automatic reassignment and the `disconnected` status need live presence, which arrives with the live console in MVP 6.
-8. **Desktop shell.** A web page cannot enforce the exam rules; it can only detect and report them. In a browser the candidate can exit full screen (the app hides the exam and reports it), switch tabs or programs (reported), and close the window (a prompt appears and the attempt is reported). The candidate can still use a second device, take a photo of the screen, or use a screenshot tool, and none of that is detectable. Real enforcement needs the desktop application: kiosk mode, blocked system shortcuts, a disabled clipboard, protection against screen capture of the exam window, detection of extra displays and virtual machines, and closing intercepted. Even then, on an unmanaged laptop the operating system keeps some keys, such as Ctrl+Alt+Del on Windows, so the specification's guidance to use managed devices for the strictest exams still applies. The candidate app runs as a web interface today. The spec calls for a desktop application (Tauri or Electron) for kiosk mode. All device access already goes through `DeviceBridge`, so the desktop shell only has to supply a native implementation.
+8. **Desktop shell (first version built).** A web page cannot enforce the exam rules; it can only detect and report them. In a browser the candidate can exit full screen (the app hides the exam and reports it), switch tabs or programs (reported), and close the window (a prompt appears and the attempt is reported). The candidate can still use a second device, take a photo of the screen, or use a screenshot tool, and none of that is detectable. Real enforcement needs the desktop application: kiosk mode, blocked system shortcuts, a disabled clipboard, protection against screen capture of the exam window, detection of extra displays and virtual machines, and closing intercepted. Even then, on an unmanaged laptop the operating system keeps some keys, such as Ctrl+Alt+Del on Windows, so the specification's guidance to use managed devices for the strictest exams still applies. The desktop application now exists (`desktop-app/`, Electron) and locks the window as described above. What is not done: installers for Windows and macOS, code signing and notarisation (needs an Apple developer account and a Windows certificate), automatic updates, and proof that a request really comes from a genuine, unmodified application (see gap 19). It was built and tested on Linux under a virtual display; how kiosk mode behaves on real Windows and macOS screens has to be tried on those computers. The spec calls for a desktop application (Tauri or Electron) for kiosk mode. All device access already goes through `DeviceBridge`, so the desktop shell only has to supply a native implementation.
 9. **Browser device checks are partial.** In a browser, virtual machine detection, kiosk mode and the screen capture permission cannot be tested. The browser reports these as passing, and the screen says so. Storage is the browser's quota, not free disk space. The native bridge must report real values.
 10. **Package confidentiality before the start.** The package can be downloaded from 10 minutes before the session (`PACKAGE_PREFETCH_MINUTES`). Earlier offline caching would need the package encrypted, with the key released at the start time.
 11. **Local encryption is only as strong as a browser allows.** Unsent answers are encrypted with a non extractable AES key held in IndexedDB. That stops other programs reading or editing the data in place, but not the person using the device. The desktop shell should keep the key in the operating system keystore. The package itself is not cached locally yet (MVP 5).
@@ -114,3 +122,15 @@ Two decisions differ slightly from the specification's wording:
 | MVP 8 | Results release, recording review, exports, integrations | `results`, `integration_configs` |
 
 The admin portal and invigilator console (React and TypeScript, spec section 13) have not been started. They can be built against the endpoints above, reusing the patterns in `candidate-app/`.
+
+
+## Desktop application and device routing
+
+The rule for an exam with `requireDesktopApp`: a laptop or desktop computer (Windows, macOS, Linux, or anything unrecognised) must use the desktop application. Phones, tablets and Chromebooks cannot run it, so they use the browser. The organisation lists the systems it accepts in `supportedOs`, and must lock down phones and tablets with its own device management (for example Guided Access on iPad or a kiosk profile on Android), which ExamGuard cannot do from a web page.
+
+18. **Screen capture protection blocks the exam window from other programs.** That includes ExamGuard's own screen recording (MVP 4): the exam window will look blank in it. The recording pipeline will have to record the screen from inside the application, or the setting has to be revisited.
+19. **The application's claim is not proven.** The client kind and the platform come from the application itself. A determined person could send the same messages from a browser. Closing this gap needs signed builds and platform attestation, or managed devices.
+20. **Things the desktop application cannot stop.** Ctrl+Alt+Del on Windows, the Windows key combinations, and on macOS the three finger swipes and Cmd+Tab are handled by the operating system. The application takes focus back and reports leaving. A second device, a photograph of the screen, and a hardware screen capture are not detectable. The strictest exams need managed devices or a person watching.
+21. **Detection is best effort.** Virtual machine and screen sharing program detection uses the computer's own hints and a list of program names. It lowers the chance of an honest mistake or a casual attempt and can be evaded by someone who prepares.
+22. **The installed application must be found.** The "Open in the ExamGuard app" link works once the packaged application is installed, because only installed builds register the `examguard://` link type. Running from source does not change the computer's settings.
+23. **Tested on Linux only.** The window locking, blocked keys, closing interception, second screen and link handling were driven in a real Electron window under a virtual display, and all their logic has unit tests. Real key delivery, the macOS and Windows behaviour of kiosk mode, and camera permission prompts on macOS need to be tried on those computers.

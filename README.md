@@ -5,6 +5,7 @@ Secure online assessment, examination and live invigilation platform. The full p
 This repository currently holds:
 
 * **`api/`**: the platform API. It covers roadmap phase MVP 1 (organisations, roles, candidate registration and approval) the server side of MVP 2 (exam entitlements, the pre exam device check and signed exam package delivery) and MVP 3 (exam attempts with a server owned timer, autosave, submission with a signed receipt and automatic marking), plus the exam rules layer (full screen, blocked copy and paste, detection of leaving the exam, and a per exam policy that the server enforces). It also enforces the rules the specification marks as critical: the invigilator limit of 10, tenant isolation, immutable signed exam versions and an append only audit trail.
+* **`desktop-app/`**: the ExamGuard desktop application (Electron). It shows the same exam screens in a locked window: kiosk and full screen, always on top, screen capture of the window blocked, closing and quitting intercepted, shortcuts swallowed, other screens and screen sharing programs detected. Exams can require it on laptops and desktops, while phones, tablets and Chromebooks carry on in the browser.
 * **`candidate-app/`**: the web interface layer of the candidate secure application (spec section 9). Candidates sign in, see their exams, run the device check, open a verified exam package, answer with autosave and a countdown, and submit. The desktop shell with kiosk mode is a later step.
 
 See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for what maps to which section of the specification and what comes next.
@@ -55,6 +56,27 @@ The demo exam has rules: it runs in full screen, copy and paste are blocked, and
 
 **A browser cannot enforce these rules, only detect and report them.** The final product needs the desktop application for real lockdown; see `docs/IMPLEMENTATION.md`. On Windows, set the two variables with `set SUPER_ADMIN_EMAIL=...` on separate lines before each command, or use Git Bash.
 
+### Trying the desktop application
+
+The API and the candidate app must be running (steps above). Then, in another window:
+
+```bash
+cd ~/kev/desktop-app
+npm install
+npm run dev          # opens the ExamGuard window; the first run downloads the Electron program (about 100 MB)
+```
+
+To make an exam that only the desktop application (on a computer) can take, create the demo with:
+
+```bash
+cd ~/kev/api
+REQUIRE_DESKTOP_APP=1 SUPER_ADMIN_EMAIL=you@example.com SUPER_ADMIN_PASSWORD='a long password' npm run demo:dev
+```
+
+Open that login in a normal browser on your Mac and you are told to use the app. Sign in inside the desktop application instead, run the device check, and start the exam: the window locks. Things to try: the red close button, Cmd+Q, Cmd+Tab, plugging in another screen, and starting a screen sharing program. Add `ALLOW_VIRTUAL_MACHINES=1` to the demo command if you are testing inside a virtual machine.
+
+**Only tested on Linux so far.** Please tell me how it behaves on your Mac.
+
 ## Stack
 
 | Layer | Choice |
@@ -66,6 +88,7 @@ The demo exam has rules: it runs in full screen, copy and paste are blocked, and
 | Exam signing | Ed25519 over canonical JSON |
 | Tests | Vitest against a real PostgreSQL database |
 | Candidate app | React 19, TypeScript, Vite; WebCrypto Ed25519 for package verification |
+| Desktop application | Electron with a sandboxed window and a small, checked set of messages to the page |
 
 ## Running locally
 
@@ -148,6 +171,13 @@ api/
     rules.ts         exam rule events and the violation policy
     signing.ts       exam manifest canonicalisation and signing
   test/              unit and integration tests
+desktop-app/
+  src/lockdown.ts    exam mode: kiosk, on top, capture blocked, focus guard
+  src/shortcuts.ts   keys that would let the candidate out
+  src/system.ts      screens, disk, virtual machine hints, screen sharing programs
+  src/navigation.ts  the window may only show ExamGuard
+  src/launch.ts      examguard:// links from the browser
+  src/main.ts, preload.ts   the Electron layer
 candidate-app/
   src/device/        device bridge: browser implementation now, native desktop later
   src/lib/           API client, package verification, server clock, save queue, encrypted local store,
