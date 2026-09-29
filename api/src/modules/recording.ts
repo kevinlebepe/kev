@@ -11,6 +11,11 @@ import { idParams, parse } from '../validation.js';
 
 export const MAX_CHUNK_BYTES = 10 * 1024 * 1024;
 export const MAX_SNAPSHOT_BYTES = 512 * 1024;
+/** The most storage one attempt's recordings may use. */
+export const MAX_ATTEMPT_BYTES = 2 * 1024 * 1024 * 1024;
+/** The densest stream is a picture every 10 seconds; numbering past this, with room to spare, is refused. */
+export const MIN_PIECE_SECONDS = 10;
+
 /** Recordings may still arrive this long after the attempt closes, from a slow or reconnecting device. */
 export const UPLOAD_AFTER_SUBMIT_HOURS = 24;
 
@@ -47,14 +52,17 @@ export async function recordingRoutes(app: FastifyInstance, deps: AppDeps) {
 
   /** One of the candidate's own attempts that may still receive recordings. */
   async function uploadTarget(attemptId: string, organisationId: string, candidateId: string) {
-    const { rows } = await db.query<{ status: string; config: unknown; late: boolean }>(
+    const { rows } = await db.query<{ status: string; config: unknown; late: boolean; max_sequence: number; stored: string }>(
       `SELECT at.status, v.manifest->'config' AS config,
+              (ceil(extract(epoch FROM at.deadline_at - at.started_at) / $5) * 2 + 50)::int AS max_sequence,
+              (SELECT coalesce(sum(rc.size_bytes), 0) FROM recording_chunks rc JOIN recording_streams rs ON rs.id = rc.stream_id
+                WHERE rs.attempt_id = at.id) AS stored,
               at.status <> 'active' AND coalesce(at.submitted_at, now()) < now() - make_interval(hours => $4) AS late
          FROM attempts at
          JOIN exam_assignments a ON a.id = at.assignment_id
          JOIN exam_versions v ON v.id = at.exam_version_id
         WHERE at.id = $1 AND at.organisation_id = $2 AND a.candidate_id = $3`,
-      [attemptId, organisationId, candidateId, UPLOAD_AFTER_SUBMIT_HOURS],
+      [attemptId, organisationId, candidateId, UPLOAD_AFTER_SUBMIT_HOURS, MIN_PIECE_SECONDS],
     );
     if (!rows[0]) throw notFound('Attempt');
     if (rows[0].late) throw conflict('Recordings for this attempt are no longer accepted');
@@ -75,6 +83,8 @@ export async function recordingRoutes(app: FastifyInstance, deps: AppDeps) {
 
     const target = await uploadTarget(id, auth.organisationId, auth.candidateId);
     if (!expectedStreams(target.config).includes(stream)) throw badRequest(`This exam does not record ${stream}`);
+    if (sequence > target.max_sequence) throw badRequest('This piece number is too high for the length of the exam');
+    if (Number(target.stored) + body.length > MAX_ATTEMPT_BYTES) throw conflict('This attempt has used all the recording space it is allowed');
     const checksum = createHash('sha256').update(body).digest('hex');
     if (checksum !== headers['x-chunk-sha256']) throw badRequest('The recording was damaged in transit; send it again');
 

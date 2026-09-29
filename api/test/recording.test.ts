@@ -69,6 +69,14 @@ describe('recording upload', () => {
     expect(state.body).toEqual({ streams: ['camera', 'screen'], next: { camera: 2 } });
   });
 
+  it('refuses piece numbers the length of the exam cannot reach', async () => {
+    const org = await createOrg(h);
+    const c = await started(h, org, { camera: true });
+    // The fixture exam lasts 60 minutes: at most 360 pictures, doubled, plus 50.
+    expect((await upload(c.token, c.attemptId, 'camera', 770, Buffer.from('x'))).status).toBe(201);
+    expect((await upload(c.token, c.attemptId, 'camera', 771, Buffer.from('y'))).status).toBe(400);
+  });
+
   it('refuses damaged pieces, unknown streams and other people’s attempts', async () => {
     const org = await createOrg(h);
     const c = await started(h, org, { camera: true });
