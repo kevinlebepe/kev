@@ -187,7 +187,9 @@ describe('live console scope', () => {
     const visible = view.body.candidates.map((c: { candidateId: string }) => c.candidateId);
     for (const r of rows) expect(visible).not.toContain(r.candidate_id);
 
-    // Staff without an invigilator record cannot open the console even with live:view.
-    expect((await call(h, 'GET', `/live/sessions/${sessionId}`, org.owner)).status).toBe(403);
+    // Staff who manage sessions and are not invigilators supervise the whole session.
+    const supervisor = await call(h, 'GET', `/live/sessions/${sessionId}`, org.owner);
+    expect(supervisor.body.scope).toBe('supervisor');
+    expect(supervisor.body.candidates).toHaveLength(6);
   });
 });

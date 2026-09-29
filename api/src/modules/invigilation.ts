@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppDeps } from '../context.js';
 import { isConstraint, isUniqueViolation, type Tx, withTransaction } from '../db.js';
-import { badRequest, conflict, forbidden, notFound } from '../errors.js';
+import { badRequest, conflict, notFound } from '../errors.js';
 import { authorize, requireOrg } from '../auth/context.js';
 import { audit, auditFrom } from '../audit.js';
 import { notify } from '../notifications.js';
@@ -266,46 +266,5 @@ export async function invigilationRoutes(app: FastifyInstance, deps: AppDeps) {
       await audit(tx, { ...auditFrom(req), action: 'invigilation.release', targetType: 'invigilation_assignment', targetId: id });
       return rows[0];
     });
-  });
-
-  // Live console: an invigilator only ever sees candidates currently assigned
-  // to them (spec section 8, "never expose candidates outside scope").
-  app.get('/live/sessions/:id', { preHandler: authorize('live:view') }, async (req) => {
-    const auth = requireOrg(req);
-    const { id } = parse(idParams, req.params);
-    const { rows: me } = await db.query<{ id: string; status: 'active' | 'paused' | 'suspended'; max_active: number }>(
-      'SELECT id, status, max_active FROM invigilators WHERE organisation_id = $1 AND user_id = $2',
-      [auth.organisationId, auth.userId],
-    );
-    const invigilator = me[0];
-    if (!invigilator) throw forbidden('Only invigilators can open the live console');
-    if (invigilator.status === 'suspended') throw forbidden('Invigilator access is suspended');
-
-    const { rowCount } = await db.query('SELECT 1 FROM sessions WHERE id = $1 AND organisation_id = $2', [id, auth.organisationId]);
-    if (!rowCount) throw notFound('Session');
-
-    const { rows: candidates } = await db.query(
-      `SELECT ia.id AS "assignmentId", c.id AS "candidateId", c.full_name AS "fullName", c.student_id AS "studentId",
-              a.status AS "entitlementStatus", ia.assigned_at AS "assignedAt"
-         FROM invigilation_assignments ia
-         JOIN candidates c ON c.id = ia.candidate_id
-         JOIN exam_assignments a ON a.session_id = ia.session_id AND a.candidate_id = ia.candidate_id
-        WHERE ia.session_id = $1 AND ia.invigilator_id = $2 AND ia.active
-        ORDER BY c.full_name`,
-      [id, invigilator.id],
-    );
-    const { rows: load } = await db.query<{ total: number }>(
-      'SELECT count(*)::int AS total FROM invigilation_assignments WHERE invigilator_id = $1 AND active',
-      [invigilator.id],
-    );
-    const total = load[0]!.total;
-    const capacity = Math.min(invigilator.max_active, PLATFORM_MAX_CANDIDATES_PER_INVIGILATOR);
-    return {
-      sessionId: id,
-      invigilatorId: invigilator.id,
-      status: liveStatus(invigilator.status, total, capacity),
-      load: { active: total, capacity },
-      candidates,
-    };
   });
 }

@@ -14,7 +14,15 @@ export interface StoredAnswer {
   text?: string;
 }
 
-const AUTO_MARKED = new Set(['mcq', 'true_false', 'multiple_response']);
+export const AUTO_MARKED = new Set(['mcq', 'true_false', 'multiple_response']);
+
+export interface QuestionMark {
+  questionId: string;
+  maxPoints: number;
+  /** Null while a free text answer waits for a human marker. */
+  awarded: number | null;
+  auto: boolean;
+}
 
 export interface MarkResult {
   score: number;
@@ -22,37 +30,51 @@ export interface MarkResult {
   /** Questions that still need a human marker. */
   needsManual: number;
   status: 'marked' | 'pending';
+  questions: QuestionMark[];
 }
 
+function autoMark(type: string, entry: KeyEntry, answer: StoredAnswer | undefined): number {
+  if (!answer) return 0;
+  const correct = new Set(entry.correctOptionIds);
+  if (type === 'multiple_response') {
+    // All or nothing: partial credit would need a policy decision from the organisation.
+    const given = new Set(answer.optionIds ?? []);
+    return given.size === correct.size && [...given].every((id) => correct.has(id)) ? entry.points : 0;
+  }
+  return answer.optionId !== undefined && correct.has(answer.optionId) ? entry.points : 0;
+}
+
+/**
+ * Marks an attempt. Choice questions are marked from the answer key. Free
+ * text takes the human mark when there is one. An unanswered free text
+ * question needs no marker: it scores nothing.
+ */
 export function markAttempt(
   questions: readonly { id: string; type: string }[],
   key: AnswerKey,
   answers: ReadonlyMap<string, StoredAnswer>,
+  manual: ReadonlyMap<string, number> = new Map(),
 ): MarkResult {
   let score = 0;
   let maxScore = 0;
   let needsManual = 0;
+  const marks: QuestionMark[] = [];
 
   for (const q of questions) {
     const entry = key[q.id];
     if (!entry) continue;
     maxScore += entry.points;
-    if (!AUTO_MARKED.has(q.type)) {
-      needsManual += 1;
-      continue;
-    }
-    const answer = answers.get(q.id);
-    if (!answer) continue;
+    const auto = AUTO_MARKED.has(q.type);
+    let awarded: number | null;
+    if (auto) awarded = autoMark(q.type, entry, answers.get(q.id));
+    else if (manual.has(q.id)) awarded = Math.min(manual.get(q.id)!, entry.points);
+    else if (!answers.get(q.id)?.text?.trim()) awarded = 0;
+    else awarded = null;
 
-    const correct = new Set(entry.correctOptionIds);
-    if (q.type === 'multiple_response') {
-      // All or nothing: partial credit would need a policy decision from the organisation.
-      const given = new Set(answer.optionIds ?? []);
-      if (given.size === correct.size && [...given].every((id) => correct.has(id))) score += entry.points;
-    } else if (answer.optionId !== undefined && correct.has(answer.optionId)) {
-      score += entry.points;
-    }
+    if (awarded === null) needsManual += 1;
+    else score += awarded;
+    marks.push({ questionId: q.id, maxPoints: entry.points, awarded, auto });
   }
 
-  return { score, maxScore, needsManual, status: needsManual > 0 ? 'pending' : 'marked' };
+  return { score, maxScore, needsManual, status: needsManual > 0 ? 'pending' : 'marked', questions: marks };
 }

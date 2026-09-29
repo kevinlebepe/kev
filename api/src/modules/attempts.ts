@@ -43,6 +43,7 @@ const eventsBody = z.object({
 });
 
 const startBody = z.object({ assignmentId: z.uuid() });
+const heartbeatBody = z.object({ afterSeq: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0) });
 const saveBody = z.object({ answers: answersBatch.default([]), position: z.number().int().min(0).max(10_000).optional() });
 const submitBody = z.object({ answers: answersBatch.default([]) });
 
@@ -296,6 +297,7 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
         return { closed: await finalizeAttempt(tx, config, id, 'timer', { userId: auth.userId, ip: req.ip }) };
       }
       const acked = await applyAnswers(tx, attempt, body.answers);
+      await tx.query('UPDATE attempts SET last_seen_at = now() WHERE id = $1', [id]);
       if (body.position !== undefined) {
         await tx.query('UPDATE attempts SET state = jsonb_set(state, $2, to_jsonb($3::int)) WHERE id = $1', [id, ['position'], body.position]);
       }
@@ -305,6 +307,40 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
     // Thrown after the transaction so a timer submission is committed first.
     if ('closed' in outcome) throw conflict('This attempt is closed', { receipt: outcome.closed });
     return outcome;
+  });
+
+  // The app checks in every few seconds while the exam is open. The reply
+  // carries new messages from the invigilator, the current deadline (which
+  // moves when extra time is given) and whether the attempt is still open.
+  app.post('/attempts/:id/heartbeat', async (req) => {
+    const auth = requireCandidate(req);
+    const { id } = parse(idParams, req.params);
+    const { afterSeq } = parse(heartbeatBody, req.body ?? {});
+    return withTransaction(db, async (tx) => {
+      const attempt = await lockAttempt(tx, id, auth.organisationId, auth.candidateId);
+      if (attempt.status === 'active' && attempt.expired) {
+        await finalizeAttempt(tx, config, id, 'timer', { userId: auth.userId, ip: req.ip });
+      }
+      const { rows: now } = await tx.query<{ status: string; deadline_at: Date; now: Date }>(
+        `UPDATE attempts SET last_seen_at = now() WHERE id = $1 RETURNING status, deadline_at, now()`,
+        [id],
+      );
+      const { rows: messages } = await tx.query<{ id: string; seq: string; kind: string; body: string; created_at: Date }>(
+        `UPDATE attempt_messages SET read_at = coalesce(read_at, now())
+          WHERE attempt_id = $1 AND seq > $2 RETURNING id, seq, kind, body, created_at`,
+        [id, afterSeq],
+      );
+      const current = now[0]!;
+      return {
+        status: current.status,
+        deadlineAt: current.deadline_at.toISOString(),
+        serverTime: current.now.toISOString(),
+        messages: messages
+          .map((m) => ({ id: m.id, seq: Number(m.seq), kind: m.kind, body: m.body, createdAt: m.created_at.toISOString() }))
+          .sort((a, b) => a.seq - b.seq),
+        receipt: current.status === 'active' ? null : await existingReceipt(tx, id),
+      };
+    });
   });
 
   app.post('/attempts/:id/submit', async (req) => {

@@ -19,6 +19,7 @@ export type PermissionKey =
   | 'recording:download'
   | 'report:view'
   | 'result:release'
+  | 'result:mark'
   | 'organisation:manage_users'
   | 'organisation:manage_security'
   | 'audit:view';

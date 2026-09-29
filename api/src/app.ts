@@ -11,6 +11,8 @@ import { sessionRoutes } from './modules/sessions.js';
 import { invigilationRoutes } from './modules/invigilation.js';
 import { candidateAppRoutes } from './modules/candidateApp.js';
 import { attemptRoutes } from './modules/attempts.js';
+import { liveRoutes } from './modules/live.js';
+import { resultRoutes } from './modules/results.js';
 
 export async function buildApp(deps: AppDeps, opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: deps.config.trustProxy, bodyLimit: 5 * 1024 * 1024 });
@@ -46,7 +48,7 @@ export async function buildApp(deps: AppDeps, opts: { logger?: boolean } = {}): 
     }
   });
 
-  for (const routes of [authRoutes, organisationRoutes, candidateRoutes, examRoutes, sessionRoutes, invigilationRoutes, candidateAppRoutes, attemptRoutes]) {
+  for (const routes of [authRoutes, organisationRoutes, candidateRoutes, examRoutes, sessionRoutes, invigilationRoutes, candidateAppRoutes, attemptRoutes, liveRoutes, resultRoutes]) {
     await app.register(async (scope) => routes(scope, deps));
   }
   return app;

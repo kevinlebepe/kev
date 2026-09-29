@@ -2,7 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Config } from './config.js';
 import { type Db, type Queryable, type Tx, withTransaction } from './db.js';
 import { audit } from './audit.js';
-import { type AnswerKey, markAttempt, type StoredAnswer } from './marking.js';
+import type { AnswerKey, StoredAnswer } from './marking.js';
+import { recomputeResult } from './results.js';
 import { canonicalJson, signManifest } from './signing.js';
 
 export type SubmittedBy = 'candidate' | 'timer' | 'system';
@@ -101,11 +102,7 @@ export async function finalizeAttempt(
   ]);
   await tx.query(`UPDATE exam_assignments SET status = 'submitted' WHERE id = $1`, [attempt.assignment_id]);
 
-  const mark = markAttempt(attempt.manifest.questions, attempt.answer_key, answers);
-  await tx.query(
-    `INSERT INTO results (organisation_id, attempt_id, score, max_score, status) VALUES ($1, $2, $3, $4, $5)`,
-    [attempt.organisation_id, attemptId, mark.score, mark.maxScore, mark.status],
-  );
+  await recomputeResult(tx, attemptId);
 
   await tx.query(
     `INSERT INTO events (organisation_id, attempt_id, type, severity, occurred_at, data)

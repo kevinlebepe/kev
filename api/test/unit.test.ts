@@ -218,12 +218,25 @@ describe('marking', () => {
   const mark = (answers: Record<string, object>) => markAttempt(questions, key, new Map(Object.entries(answers)));
 
   it('scores each automatic type and leaves free text for a human', () => {
-    expect(mark({ a: { optionId: 'a2' }, b: { optionIds: ['b2', 'b1'] }, c: { optionId: 'c1' }, d: { text: 'x' } })).toEqual({
+    expect(mark({ a: { optionId: 'a2' }, b: { optionIds: ['b2', 'b1'] }, c: { optionId: 'c1' }, d: { text: 'x' } })).toMatchObject({
       score: 6,
       maxScore: 10,
       needsManual: 1,
       status: 'pending',
     });
+  });
+
+  it('adds the human mark for free text, capped at the question’s points', () => {
+    const answers = new Map<string, object>([['a', { optionId: 'a2' }], ['d', { text: 'an answer' }]]);
+    expect(markAttempt(questions, key, answers, new Map([['d', 3]]))).toMatchObject({ score: 5, needsManual: 0, status: 'marked' });
+    expect(markAttempt(questions, key, answers, new Map([['d', 9]])).score).toBe(6);
+    const d = markAttempt(questions, key, answers).questions.find((q) => q.questionId === 'd');
+    expect(d).toEqual({ questionId: 'd', maxPoints: 4, awarded: null, auto: false });
+  });
+
+  it('needs no marker for a blank free text answer', () => {
+    expect(mark({ d: { text: '   ' } })).toMatchObject({ needsManual: 0, status: 'marked', score: 0 });
+    expect(mark({})).toMatchObject({ needsManual: 0, status: 'marked' });
   });
 
   it('gives no credit for wrong, partial or missing answers', () => {

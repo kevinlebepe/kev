@@ -2,11 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppDeps } from '../context.js';
 import { withTransaction } from '../db.js';
-import { badRequest, notFound } from '../errors.js';
+import { badRequest, conflict, notFound } from '../errors.js';
 import { authorize, requireOrg } from '../auth/context.js';
 import { audit, auditFrom } from '../audit.js';
 import { notify } from '../notifications.js';
-import { idParams, parse } from '../validation.js';
+import { idParams, page, pagination, parse } from '../validation.js';
 
 const createSessionBody = z
   .object({
@@ -16,6 +16,25 @@ const createSessionBody = z
     endsAt: z.iso.datetime({ offset: true }),
   })
   .refine((s) => new Date(s.endsAt) > new Date(s.startsAt), 'endsAt must be after startsAt');
+
+const updateSessionBody = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    status: z.enum(['scheduled', 'open', 'closed', 'cancelled']).optional(),
+    startsAt: z.iso.datetime({ offset: true }).optional(),
+    endsAt: z.iso.datetime({ offset: true }).optional(),
+  })
+  .refine((b) => Object.keys(b).length > 0, 'Nothing to change');
+
+const listQuery = pagination.extend({ status: z.enum(['scheduled', 'open', 'closed', 'cancelled']).optional() });
+
+/** Status changes a session may make. Closed and cancelled sessions are final. */
+const TRANSITIONS: Record<string, string[]> = {
+  scheduled: ['open', 'cancelled'],
+  open: ['closed', 'cancelled'],
+  closed: [],
+  cancelled: [],
+};
 
 const rosterBody = z.object({ invigilatorIds: z.array(z.uuid()).min(1).max(500) });
 
@@ -44,6 +63,52 @@ export async function sessionRoutes(app: FastifyInstance, deps: AppDeps) {
       return { id, status: 'scheduled' };
     });
     return reply.code(201).send(session);
+  });
+
+  app.get('/sessions', { preHandler: authorize('session:manage') }, async (req) => {
+    const auth = requireOrg(req);
+    const { limit, offset, status } = parse(listQuery, req.query);
+    const { rows } = await db.query(
+      `SELECT s.id, s.name, s.status, s.starts_at AS "startsAt", s.ends_at AS "endsAt",
+              s.exam_version_id AS "examVersionId", v.exam_id AS "examId", v.version AS "examVersion", v.manifest->>'name' AS "examName",
+              (SELECT count(*)::int FROM exam_assignments a WHERE a.session_id = s.id AND a.status <> 'revoked') AS candidates,
+              (SELECT count(*)::int FROM exam_assignments a WHERE a.session_id = s.id AND a.status IN ('submitted', 'completed')) AS submitted
+         FROM sessions s JOIN exam_versions v ON v.id = s.exam_version_id
+        WHERE s.organisation_id = $1 AND ($2::text IS NULL OR s.status = $2)
+        ORDER BY s.starts_at DESC, s.id LIMIT $3 OFFSET $4`,
+      [auth.organisationId, status ?? null, limit, offset],
+    );
+    return page(rows, limit, offset);
+  });
+
+  app.patch('/sessions/:id', { preHandler: authorize('session:manage') }, async (req) => {
+    const auth = requireOrg(req);
+    const { id } = parse(idParams, req.params);
+    const body = parse(updateSessionBody, req.body);
+    return withTransaction(db, async (tx) => {
+      const { rows } = await tx.query<{ status: string; starts_at: Date; ends_at: Date }>(
+        'SELECT status, starts_at, ends_at FROM sessions WHERE id = $1 AND organisation_id = $2 FOR UPDATE',
+        [id, auth.organisationId],
+      );
+      const current = rows[0];
+      if (!current) throw notFound('Session');
+      if (body.status && body.status !== current.status && !TRANSITIONS[current.status]!.includes(body.status)) {
+        throw conflict(`A ${current.status} session cannot become ${body.status}`);
+      }
+      if ((body.startsAt || body.endsAt) && current.status !== 'scheduled') throw conflict('Times can only change before the session opens');
+      const startsAt = body.startsAt ? new Date(body.startsAt) : current.starts_at;
+      const endsAt = body.endsAt ? new Date(body.endsAt) : current.ends_at;
+      if (endsAt <= startsAt) throw badRequest('endsAt must be after startsAt');
+
+      const { rows: updated } = await tx.query(
+        `UPDATE sessions SET name = coalesce($3, name), status = coalesce($4, status), starts_at = $5, ends_at = $6
+          WHERE id = $1 AND organisation_id = $2
+          RETURNING id, name, status, starts_at AS "startsAt", ends_at AS "endsAt"`,
+        [id, auth.organisationId, body.name ?? null, body.status ?? null, startsAt, endsAt],
+      );
+      await audit(tx, { ...auditFrom(req), action: 'session.update', targetType: 'session', targetId: id, data: body });
+      return updated[0];
+    });
   });
 
   app.get('/sessions/:id/status', { preHandler: authorize('session:manage') }, async (req) => {
