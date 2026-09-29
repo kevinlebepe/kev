@@ -214,3 +214,5 @@ td.details { max-width: 24rem; overflow-wrap: anywhere; }
 .chunks { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: flex-start; }
 .clip { width: 100%; max-width: 26rem; border-radius: 8px; background: #000; }
 .frame { width: 100%; max-width: 20rem; border-radius: 6px; border: 1px solid var(--border); }
+.live-video { width: 100%; border-radius: 8px; background: #000; aspect-ratio: 4 / 3; }
+.live-video.hidden { display: none; }

@@ -25,6 +25,8 @@ export function streamsFor(needs: Needs): StreamKind[] {
 
 export interface ExamRecording {
   session: RecordingSession;
+  /** The camera and microphone stream, shared with a live call. */
+  camera: MediaStream | null;
   /** Stops everything and releases the camera and screen, after the last pieces are sent. */
   finish(): Promise<{ complete: boolean }>;
 }
@@ -117,6 +119,7 @@ export function startExamRecording(opts: {
   let finishing: Promise<{ complete: boolean }> | null = null;
   return {
     session,
+    camera: opts.camera,
     finish() {
       finishing ??= (async () => {
         snapshotStop?.();

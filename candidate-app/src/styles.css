@@ -191,3 +191,5 @@ a.button.primary { background: var(--accent); border-color: var(--accent); color
 .results { margin-top: 2rem; }
 .results h3 { margin: 0; font-size: 1.05rem; }
 .results .score { margin: 0; font-size: 1.25rem; white-space: nowrap; }
+
+.banner.live-call { margin: 0; border-radius: 0; background: var(--bad-bg); color: var(--bad); }

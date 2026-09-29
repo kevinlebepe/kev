@@ -71,6 +71,18 @@ function parseTrustProxy(raw: string | undefined): TrustProxy {
   return raw;
 }
 
+/**
+ * ICE_SERVERS is a JSON list of RTCIceServer objects. Without it a public
+ * STUN server is used, which connects most home and office networks. Strict
+ * networks need a TURN server (see docs/IMPLEMENTATION.md).
+ */
+function parseIceServers(raw: string | undefined): Config['iceServers'] {
+  if (!raw) return [{ urls: 'stun:stun.l.google.com:19302' }];
+  const parsed = JSON.parse(raw) as unknown;
+  if (!Array.isArray(parsed)) throw new Error('ICE_SERVERS must be a JSON list');
+  return parsed as Config['iceServers'];
+}
+
 export interface Config {
   databaseUrl: string;
   port: number;
@@ -89,6 +101,8 @@ export interface Config {
   examSigning: { privateKey: KeyObject; publicKey: KeyObject; keyId: string };
   /** SMTP server for outgoing email. Without it, development prints emails to the log and production sends none. */
   smtpUrl: string | null;
+  /** STUN and TURN servers for live video, as RTCIceServer objects. */
+  iceServers: { urls: string | string[]; username?: string; credential?: string }[];
   /** Folder for recordings when no other store is configured. */
   recordingDir: string;
   mailFrom: string;
@@ -110,6 +124,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     examSigning: loadSigningKey(),
     smtpUrl: process.env.SMTP_URL || null,
     recordingDir: process.env.RECORDING_DIR ?? 'recordings',
+    iceServers: parseIceServers(process.env.ICE_SERVERS),
     mailFrom: process.env.MAIL_FROM ?? 'ExamGuard <no-reply@examguard.local>',
     ...overrides,
   };

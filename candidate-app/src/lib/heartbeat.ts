@@ -22,6 +22,8 @@ export interface HeartbeatReply {
   receipt: Receipt | null;
   /** Set once the attempt is closed early. */
   endedBy?: 'invigilator' | 'rules' | null;
+  /** A live call the invigilator has started. */
+  call?: { id: string; voice: boolean } | null;
 }
 
 export interface HeartbeatOptions {

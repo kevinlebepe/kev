@@ -20,9 +20,9 @@ const extendBody = z.object({ minutes: z.number().int().min(1).max(MAX_EXTENSION
 const endBody = z.object({ reason: z.string().trim().min(1).max(500) });
 const noteBody = z.object({ note: z.string().trim().min(1).max(2000) });
 
-type OrgAuth = AuthContext & { organisationId: string };
+export type OrgAuth = AuthContext & { organisationId: string };
 
-interface Viewer {
+export interface Viewer {
   /** Set for an invigilator: they only ever see candidates assigned to them. */
   invigilatorId: string | null;
   scope: 'invigilator' | 'supervisor';
@@ -35,7 +35,7 @@ interface Viewer {
  * section 8). Staff who manage sessions and are not invigilators supervise
  * the whole session.
  */
-async function viewer(q: Queryable, auth: OrgAuth): Promise<Viewer> {
+export async function viewer(q: Queryable, auth: OrgAuth): Promise<Viewer> {
   const { rows } = await q.query<{ id: string; status: 'active' | 'paused' | 'suspended'; max_active: number }>(
     'SELECT id, status, max_active FROM invigilators WHERE organisation_id = $1 AND user_id = $2',
     [auth.organisationId, auth.userId],
@@ -59,7 +59,7 @@ interface AttemptScope {
 }
 
 /** Finds an attempt the caller may act on, and locks it when inside a transaction. Out of scope reads as not found. */
-async function scopedAttempt(q: Queryable, auth: OrgAuth, v: Viewer, attemptId: string, lock = false): Promise<AttemptScope> {
+export async function scopedAttempt(q: Queryable, auth: OrgAuth, v: Viewer, attemptId: string, lock = false): Promise<AttemptScope> {
   const { rows } = await q.query<AttemptScope>(
     `SELECT at.id AS "attemptId", a.session_id AS "sessionId", a.candidate_id AS "candidateId", at.status
        FROM attempts at JOIN exam_assignments a ON a.id = at.assignment_id

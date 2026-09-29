@@ -5,6 +5,7 @@ import { formatDateTime, formatDuration, formatTime, label } from '../lib/format
 import { href } from '../lib/router';
 import { useApi } from '../lib/useApi';
 import { Snapshot } from '../components/media';
+import { LiveCallControls } from '../components/LiveCall';
 
 const REFRESH_MS = 5000;
 
@@ -242,6 +243,8 @@ function AttemptPanel({ attemptId, offset, now, onClose, onChanged }: { attemptI
 
           {active && (
             <>
+              <h3>Live</h3>
+              <LiveCallControls attemptId={attemptId} />
               <h3>Send to the candidate</h3>
               <form
                 className="stack"

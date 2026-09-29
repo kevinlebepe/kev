@@ -7,6 +7,7 @@ import { Heartbeat, type HeartbeatReply, type InvigilatorMessage } from '../lib/
 import { type ExamRecording, startExamRecording, streamsFor } from '../lib/examRecording';
 import { openCamera, recordingSupported } from '../lib/media';
 import { PieceVault } from '../lib/pieceVault';
+import { CandidateCall, type Signal } from '../lib/liveCall';
 import { noticeText, rulesFrom } from '../lib/examRules';
 import { enterFullscreen, exitFullscreen } from '../lib/fullscreen';
 import { attachExamRules } from '../lib/rules';
@@ -93,6 +94,9 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
   const reporterRef = useRef<EventReporter | null>(null);
   const heartbeatRef = useRef<Heartbeat | null>(null);
   const recordingRef = useRef<ExamRecording | null>(null);
+  const callRef = useRef<{ id: string; call: CandidateCall } | null>(null);
+  const [liveCall, setLiveCall] = useState<{ voice: boolean } | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   // Stops watching the rules. Called the moment the exam ends, so the candidate
   // is not stopped from closing the window on the receipt screen.
   const stopWatchingRef = useRef<() => void>(() => {});
@@ -112,6 +116,9 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
       queueRef.current?.dispose();
       reporterRef.current?.dispose();
       heartbeatRef.current?.stop();
+      callRef.current?.call.stop();
+      callRef.current = null;
+      setLiveCall(null);
       // The recording keeps uploading after the exam closes; the receipt shows how it is going.
       const recording = recordingRef.current;
       if (recording) {
@@ -291,6 +298,46 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
     };
   }, [attempt.id, desktop, manifest.config.security, screen, store]);
 
+  // Joins or leaves a live call as the invigilator starts or ends it.
+  const syncCall = useCallback(
+    (wanted: { id: string; voice: boolean } | null) => {
+      const current = callRef.current;
+      if (current && current.id === wanted?.id) return;
+      current?.call.stop();
+      callRef.current = null;
+      setLiveCall(wanted ? { voice: wanted.voice } : null);
+      if (!wanted) return;
+      const base = `/attempts/${attempt.id}/calls/${wanted.id}/signals`;
+      const call = new CandidateCall({
+        channel: {
+          send: (type, payload) => request('POST', base, { type, payload }).then(() => undefined),
+          poll: (after) => request<{ status: string; signals: Signal[] }>('GET', `${base}?after=${after}`),
+        },
+        media: recordingRef.current?.camera ?? null,
+        onRemoteAudio: (stream) => {
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = stream;
+            void remoteAudioRef.current.play().catch(() => undefined);
+          }
+        },
+        onEnded: () => {
+          if (callRef.current?.call === call) {
+            callRef.current = null;
+            setLiveCall(null);
+          }
+        },
+      });
+      callRef.current = { id: wanted.id, call };
+      void request<{ iceServers: RTCIceServer[] }>('GET', '/live/ice-servers')
+        .catch(() => ({ iceServers: [] }))
+        .then(({ iceServers }) => {
+          if (callRef.current?.call === call) call.start(iceServers);
+        });
+    },
+    [attempt.id],
+  );
+  useEffect(() => () => callRef.current?.call.stop(), []);
+
   // Checks in with the server: messages from the invigilator, extra time, and an exam ended by the invigilator.
   useEffect(() => {
     const heartbeat = new Heartbeat({
@@ -302,6 +349,7 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
           return;
         }
         setDeadline(Date.parse(reply.deadlineAt));
+        syncCall(reply.call ?? null);
         if (reply.messages.length) setMessages((m) => [...m, ...reply.messages]);
       },
     });
@@ -311,7 +359,7 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
       heartbeat.stop();
       heartbeatRef.current = null;
     };
-  }, [attempt.id, clock, finish]);
+  }, [attempt.id, clock, finish, syncCall]);
 
   const submit = useCallback(
     async (auto: boolean) => {
@@ -466,6 +514,12 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
           {messages.length > 1 && <p className="muted small">{messages.length - 1} earlier message{messages.length > 2 ? 's' : ''} from your invigilator.</p>}
           <button onClick={() => setMessages([])}>OK</button>
         </section>
+      )}
+      <audio ref={remoteAudioRef} autoPlay hidden />
+      {liveCall && (
+        <p className="banner live-call" role="status">
+          ● LIVE: your invigilator {liveCall.voice ? 'is talking to you and can see and hear you' : 'is watching your camera'} right now.
+        </p>
       )}
       {offlineSince !== null && phase !== 'done' && (
         <p className="banner warn" role="status">

@@ -372,9 +372,15 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
         );
         if (ended[0]) endedBy = ended[0].type === 'attempt_ended_by_invigilator' ? 'invigilator' : 'rules';
       }
+      // A live call the invigilator has started, which the app should join.
+      const { rows: calls } = await tx.query<{ id: string; voice: boolean }>(
+        `SELECT id, voice FROM live_calls WHERE attempt_id = $1 AND status = 'open'`,
+        [id],
+      );
       return {
         status: current.status,
         endedBy,
+        call: current.status === 'active' && calls[0] ? { id: calls[0].id, voice: calls[0].voice } : null,
         deadlineAt: current.deadline_at.toISOString(),
         serverTime: current.now.toISOString(),
         messages: messages
