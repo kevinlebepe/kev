@@ -44,6 +44,16 @@ export const examConfig = z.object({
   navigation: z
     .object({ allowBacktrack: z.boolean().default(true), randomiseQuestionOrder: z.boolean().default(false) })
     .default({ allowBacktrack: true, randomiseQuestionOrder: false }),
+  // Device requirements checked by the pre-exam readiness check (spec section 10).
+  device: z
+    .object({
+      supportedOs: z.array(z.enum(['windows', 'macos', 'linux', 'chromeos'])).min(1).default(['windows', 'macos']),
+      minAppVersion: z.string().regex(/^\d+\.\d+\.\d+$/).optional(),
+      minFreeStorageMb: z.number().int().min(0).max(1_000_000).default(2048),
+      allowExternalMonitors: z.boolean().default(false),
+      allowVirtualMachines: z.boolean().default(false),
+    })
+    .default({ supportedOs: ['windows', 'macos'], minFreeStorageMb: 2048, allowExternalMonitors: false, allowVirtualMachines: false }),
 });
 
 export type ExamConfig = z.infer<typeof examConfig>;

@@ -110,11 +110,15 @@ export async function latestLinkToken(h: Harness, email: string): Promise<string
   return rows[0].link.split('/').pop()!;
 }
 
-export async function publishedExam(h: Harness, org: TestOrg, maxPerInvigilator = 10) {
+export async function publishedExam(h: Harness, org: TestOrg, maxPerInvigilator = 10, extraConfig: object = {}) {
   const exam = await call(h, 'POST', '/exams', org.owner, {
     code: uniq('EX'),
     name: 'Mathematics 101',
-    config: { timing: { durationMinutes: 90 }, invigilation: { required: true, maxCandidatesPerInvigilator: maxPerInvigilator } },
+    config: {
+      timing: { durationMinutes: 90 },
+      invigilation: { required: true, maxCandidatesPerInvigilator: maxPerInvigilator },
+      ...extraConfig,
+    },
   });
   const q = await call(h, 'POST', '/questions', org.owner, {
     type: 'mcq',
@@ -127,13 +131,13 @@ export async function publishedExam(h: Harness, org: TestOrg, maxPerInvigilator 
   return { examId: exam.body.id as string, versionId: version.body.id as string, questionId: q.body.id as string };
 }
 
-export async function session(h: Harness, org: TestOrg, versionId: string): Promise<string> {
-  const res = await call(h, 'POST', '/sessions', org.owner, {
-    examVersionId: versionId,
-    name: 'Morning sitting',
-    startsAt: '2026-10-14T09:00:00+02:00',
-    endsAt: '2026-10-14T12:00:00+02:00',
-  });
+export async function session(
+  h: Harness,
+  org: TestOrg,
+  versionId: string,
+  times: { startsAt: string; endsAt: string } = { startsAt: '2030-10-14T09:00:00+02:00', endsAt: '2030-10-14T12:00:00+02:00' },
+): Promise<string> {
+  const res = await call(h, 'POST', '/sessions', org.owner, { examVersionId: versionId, name: 'Morning sitting', ...times });
   if (res.status !== 201) throw new Error(JSON.stringify(res.body));
   return res.body.id;
 }

@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { allocate, liveStatus } from '../src/allocation.js';
 import { selfRegistrationOutcome, transition } from '../src/candidateStatus.js';
 import { canonicalJson, signManifest, verifyManifest } from '../src/signing.js';
+import { compareVersions, evaluateReadiness } from '../src/readiness.js';
+import { examConfig } from '../src/examConfig.js';
 
 describe('allocate', () => {
   const ids = (n: number, p = 'c') => Array.from({ length: n }, (_, i) => `${p}${String(i).padStart(3, '0')}`);
@@ -82,5 +84,48 @@ describe('manifest signing', () => {
     const { signature } = signManifest(manifest, privateKey);
     expect(verifyManifest({ questions: [{ prompt: 'Hi', id: 'q1' }], examId: 'x' }, signature, publicKey)).toBe(true);
     expect(verifyManifest({ ...manifest, examId: 'y' }, signature, publicKey)).toBe(false);
+  });
+});
+
+describe('readiness evaluation', () => {
+  const now = new Date('2026-10-14T07:00:00Z');
+  const report = {
+    appVersion: '1.2.0',
+    os: { platform: 'windows' as const, version: '11' },
+    camera: { detected: false },
+    microphone: { detected: false },
+    screenCapture: { ready: false },
+    storage: { freeMb: 5000 },
+    displays: { count: 1 },
+    virtualMachine: { detected: false },
+    network: { tested: false },
+    clientTime: now.toISOString(),
+  };
+
+  it('only checks devices the exam actually uses', () => {
+    const result = evaluateReadiness(examConfig.parse({}), report, { identityVerified: true, serverTime: now });
+    expect(result.passed).toBe(true);
+    expect(result.checks.map((c) => c.key)).not.toContain('camera');
+  });
+
+  it('fails on each configured requirement', () => {
+    const config = examConfig.parse({
+      security: { camera: true, microphone: true, screenCapture: true },
+      offline: { allowed: false },
+      device: { minAppVersion: '1.10.0', supportedOs: ['macos'], minFreeStorageMb: 8000 },
+    });
+    const result = evaluateReadiness(
+      config,
+      { ...report, displays: { count: 2 }, virtualMachine: { detected: true } },
+      { identityVerified: false, serverTime: now },
+    );
+    expect(result.checks.filter((c) => !c.passed).map((c) => c.key).sort()).toEqual(
+      ['app_version', 'camera', 'displays', 'identity', 'microphone', 'network', 'os', 'screen_capture', 'storage', 'virtual_machine'],
+    );
+  });
+
+  it('compares versions numerically', () => {
+    expect(compareVersions('1.10.0', '1.9.9')).toBe(1);
+    expect(compareVersions('2.0.0', '2.0.0')).toBe(0);
   });
 });

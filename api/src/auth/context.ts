@@ -102,6 +102,13 @@ export function requireOrg(req: FastifyRequest): AuthContext & { organisationId:
   return auth as AuthContext & { organisationId: string };
 }
 
+/** Caller must be a candidate of the scoped organisation. */
+export function requireCandidate(req: FastifyRequest): AuthContext & { organisationId: string; candidateId: string } {
+  const auth = requireOrg(req);
+  if (!auth.candidateId) throw forbidden('Candidate access only');
+  return auth as AuthContext & { organisationId: string; candidateId: string };
+}
+
 export function authorize(...required: PermissionKey[]): preHandlerAsyncHookHandler {
   return async (req) => {
     const auth = requireOrg(req);

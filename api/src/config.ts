@@ -39,6 +39,8 @@ export interface Config {
   /** Per-IP requests per minute on login/refresh and public onboarding endpoints. */
   authRateLimitPerMinute: number;
   publicBaseUrl: string;
+  /** How long before a session starts a candidate may download the exam package. */
+  packagePrefetchMinutes: number;
   examSigning: { privateKey: KeyObject; publicKey: KeyObject; keyId: string };
 }
 
@@ -52,6 +54,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     invitationTtlHours: Number(process.env.INVITATION_TTL_HOURS ?? 24 * 7),
     authRateLimitPerMinute: Number(process.env.AUTH_RATE_LIMIT_PER_MINUTE ?? 20),
     publicBaseUrl: process.env.PUBLIC_BASE_URL ?? 'http://localhost:5173',
+    packagePrefetchMinutes: Number(process.env.PACKAGE_PREFETCH_MINUTES ?? 10),
     examSigning: loadSigningKey(),
     ...overrides,
   };
