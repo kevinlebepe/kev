@@ -237,6 +237,16 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('desktop:exit-exam-mode', (event) => {
       if (trusted(event)) exam?.exit();
     });
+    // A picture of the locked exam window for the screen recording. In exam
+    // mode the window covers the whole screen, so this is what the screen
+    // shows. It is taken from inside the application, so the protection
+    // against outside screen capture does not blank it.
+    ipcMain.handle('desktop:capture-screen', async (event) => {
+      if (!trusted(event) || !win || !exam?.isActive()) return null;
+      const image = await win.webContents.capturePage();
+      const { width } = image.getSize();
+      return (width > 1280 ? image.resize({ width: 1280 }) : image).toJPEG(60);
+    });
 
     createWindow();
     app.on('activate', () => {

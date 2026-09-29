@@ -5,3 +5,4 @@ dist/
 !.env.example
 *.log
 .dev-signing-key.pem
+api/recordings/

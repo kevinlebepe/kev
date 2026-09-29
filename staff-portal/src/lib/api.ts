@@ -101,6 +101,14 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   return data as T;
 }
 
+/** Fetches a file, such as a recording, as a Blob. Null when there is none (404). */
+export async function fetchBlob(path: string): Promise<Blob | null> {
+  const res = await authed('GET', path);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new ApiError(res.status, `Could not load (${res.status})`);
+  return res.blob();
+}
+
 /** Downloads a file from the API with the signed in user's credentials. */
 export async function download(path: string, fallbackName: string): Promise<void> {
   const res = await authed('GET', path);

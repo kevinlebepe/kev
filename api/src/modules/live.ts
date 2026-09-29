@@ -119,6 +119,7 @@ export async function liveRoutes(app: FastifyInstance, deps: AppDeps) {
               a.status AS "entitlementStatus", ia.assigned_at AS "assignedAt", iu.display_name AS "invigilatorName",
               at.id AS "attemptId", at.status AS "attemptStatus", at.started_at AS "startedAt", at.deadline_at AS "deadlineAt",
               at.submitted_at AS "submittedAt", at.submitted_by AS "submittedBy", at.last_seen_at AS "lastSeenAt",
+              at.snapshot_at AS "snapshotAt",
               coalesce(at.last_seen_at > now() - make_interval(secs => $4), false) AS online,
               (SELECT count(*)::int FROM events e WHERE e.attempt_id = at.id AND e.type = ANY($5::text[])) AS violations,
               (SELECT json_build_object('type', e.type, 'severity', e.severity, 'occurredAt', e.occurred_at)
@@ -167,7 +168,7 @@ export async function liveRoutes(app: FastifyInstance, deps: AppDeps) {
     await scopedAttempt(db, auth, v, id);
     const { rows } = await db.query(
       `SELECT at.id, at.status, at.started_at AS "startedAt", at.deadline_at AS "deadlineAt", at.submitted_at AS "submittedAt",
-              at.submitted_by AS "submittedBy", at.last_seen_at AS "lastSeenAt",
+              at.submitted_by AS "submittedBy", at.last_seen_at AS "lastSeenAt", at.snapshot_at AS "snapshotAt",
               coalesce(at.last_seen_at > now() - make_interval(secs => $2), false) AS online,
               c.id AS "candidateId", c.full_name AS "fullName", c.student_id AS "studentId", c.email,
               s.id AS "sessionId", s.name AS "sessionName", v.manifest->>'name' AS "examName",
@@ -192,6 +193,23 @@ export async function liveRoutes(app: FastifyInstance, deps: AppDeps) {
       [id],
     );
     return { ...rows[0], scope: v.scope, timeline, messages };
+  });
+
+  // The latest camera still of a candidate in scope.
+  app.get('/live/attempts/:id/snapshot', { preHandler: authorize('live:view') }, async (req, reply) => {
+    const auth = requireOrg(req);
+    const { id } = parse(idParams, req.params);
+    const v = await viewer(db, auth);
+    await scopedAttempt(db, auth, v, id);
+    const { rows } = await db.query<{ snapshot_key: string | null }>('SELECT snapshot_key FROM attempts WHERE id = $1', [id]);
+    const object = rows[0]?.snapshot_key ? await deps.store!.get(rows[0].snapshot_key) : null;
+    if (!object) throw notFound('Snapshot');
+    return reply
+      .header('content-type', 'image/jpeg')
+      .header('content-length', object.size)
+      .header('cache-control', 'private, no-store')
+      .header('x-content-type-options', 'nosniff')
+      .send(object.stream);
   });
 
   app.post('/live/attempts/:id/messages', { preHandler: authorize('live:view') }, async (req, reply) => {

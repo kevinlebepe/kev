@@ -119,7 +119,8 @@ export type RuleEventType =
   | 'context_menu'
   | 'shortcut_blocked'
   | 'close_attempt'
-  | 'display_added';
+  | 'display_added'
+  | 'recording_stopped';
 
 export interface PendingEvent {
   id: string;

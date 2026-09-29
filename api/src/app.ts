@@ -13,8 +13,11 @@ import { candidateAppRoutes } from './modules/candidateApp.js';
 import { attemptRoutes } from './modules/attempts.js';
 import { liveRoutes } from './modules/live.js';
 import { resultRoutes } from './modules/results.js';
+import { recordingRoutes } from './modules/recording.js';
+import { diskStore } from './storage.js';
 
-export async function buildApp(deps: AppDeps, opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
+export async function buildApp(given: AppDeps, opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
+  const deps: AppDeps = { ...given, store: given.store ?? diskStore(given.config.recordingDir) };
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: deps.config.trustProxy, bodyLimit: 5 * 1024 * 1024 });
 
   // Rate limits apply only where a route opts in (auth and public onboarding).
@@ -48,7 +51,7 @@ export async function buildApp(deps: AppDeps, opts: { logger?: boolean } = {}): 
     }
   });
 
-  for (const routes of [authRoutes, organisationRoutes, candidateRoutes, examRoutes, sessionRoutes, invigilationRoutes, candidateAppRoutes, attemptRoutes, liveRoutes, resultRoutes]) {
+  for (const routes of [authRoutes, organisationRoutes, candidateRoutes, examRoutes, sessionRoutes, invigilationRoutes, candidateAppRoutes, attemptRoutes, liveRoutes, resultRoutes, recordingRoutes]) {
     await app.register(async (scope) => routes(scope, deps));
   }
   return app;

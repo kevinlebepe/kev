@@ -89,6 +89,8 @@ export interface Config {
   examSigning: { privateKey: KeyObject; publicKey: KeyObject; keyId: string };
   /** SMTP server for outgoing email. Without it, development prints emails to the log and production sends none. */
   smtpUrl: string | null;
+  /** Folder for recordings when no other store is configured. */
+  recordingDir: string;
   mailFrom: string;
 }
 
@@ -107,6 +109,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     attemptGraceSeconds: Number(process.env.ATTEMPT_GRACE_SECONDS ?? 30),
     examSigning: loadSigningKey(),
     smtpUrl: process.env.SMTP_URL || null,
+    recordingDir: process.env.RECORDING_DIR ?? 'recordings',
     mailFrom: process.env.MAIL_FROM ?? 'ExamGuard <no-reply@examguard.local>',
     ...overrides,
   };

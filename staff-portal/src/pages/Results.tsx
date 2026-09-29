@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { ActionButton, Badge, ErrorText, Loading, Page, Stat } from '../components/ui';
 import { download, request } from '../lib/api';
-import { formatDateTime, label } from '../lib/format';
+import { formatDateTime, formatTime, label } from '../lib/format';
 import { href } from '../lib/router';
 import { can, useMe } from '../lib/session';
 import { useApi } from '../lib/useApi';
+import { Chunk } from '../components/media';
 
 interface ResultRow {
   attemptId: string;
@@ -138,6 +139,7 @@ interface MarkingData {
 }
 
 export function Marking({ attemptId }: { attemptId: string }) {
+  const me = useMe();
   const data = useApi<MarkingData>(`/marking/attempts/${attemptId}`);
   const [marks, setMarks] = useState<Record<string, { points: string; comment: string }>>({});
   const [saved, setSaved] = useState<string | null>(null);
@@ -246,9 +248,58 @@ export function Marking({ attemptId }: { attemptId: string }) {
                 )}
               </div>
             )}
+            {can(me, 'recording:view') && <Recordings attemptId={attemptId} />}
           </>
         )}
       </Loading>
     </Page>
+  );
+}
+
+interface RecordingsData {
+  submission: string | null;
+  evidence: { expected: string[]; missing: Record<string, number[]>; incomplete: string[]; complete: boolean };
+  streams: { type: string; chunks: { id: string; sequence: number; startTime: string; endTime: string; sizeBytes: number; contentType: string }[] }[];
+}
+
+const STREAM_TEXT: Record<string, string> = { camera: 'Camera', screen: 'Screen', audio: 'Microphone' };
+
+function Recordings({ attemptId }: { attemptId: string }) {
+  const rec = useApi<RecordingsData>(`/attempts/${attemptId}/recordings`);
+  const d = rec.data;
+  if (rec.error) return <ErrorText error={rec.error} />;
+  if (!d || d.evidence.expected.length === 0) return null;
+  return (
+    <section className="card">
+      <h2>Recording</h2>
+      <p>
+        {d.evidence.complete ? (
+          <Badge value="complete" tone="ok" />
+        ) : (
+          <Badge value="incomplete" tone="warn" />
+        )}{' '}
+        <span className="muted small">
+          Submission {label(d.submission)}.
+          {d.evidence.incomplete.length > 0 && ` Not finished: ${d.evidence.incomplete.map((s) => STREAM_TEXT[s] ?? s).join(', ')}.`}
+          {Object.entries(d.evidence.missing).map(([s, gaps]) => ` ${STREAM_TEXT[s] ?? s} is missing part${gaps.length > 1 ? 's' : ''} ${gaps.join(', ')}.`)}
+        </span>
+      </p>
+      {d.streams.map((s) => (
+        <div key={s.type} className="stream">
+          <h3>
+            {STREAM_TEXT[s.type] ?? s.type} <span className="muted small">({s.chunks.length} part{s.chunks.length === 1 ? '' : 's'})</span>
+          </h3>
+          {s.chunks.length === 0 ? (
+            <p className="muted small">Nothing was received.</p>
+          ) : (
+            <div className="chunks">
+              {s.chunks.map((c) => (
+                <Chunk key={c.id} id={c.id} contentType={c.contentType} label={`${formatTime(c.startTime)}`} />
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </section>
   );
 }

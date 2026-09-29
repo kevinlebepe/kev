@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('examguardDesktop', {
   systemReport: () => ipcRenderer.invoke('desktop:system-report'),
   enterExamMode: () => ipcRenderer.invoke('desktop:enter-exam-mode'),
   exitExamMode: () => ipcRenderer.invoke('desktop:exit-exam-mode'),
+  captureScreen: () => ipcRenderer.invoke('desktop:capture-screen'),
   onCloseRequested: subscribe<[]>('desktop:close-requested'),
   onShortcutBlocked: subscribe<[string]>('desktop:shortcut-blocked'),
   onFullscreenChange: subscribe<[boolean]>('desktop:fullscreen'),

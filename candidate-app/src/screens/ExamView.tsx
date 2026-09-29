@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { request } from '../lib/api';
 import { getDesktop } from '../lib/desktop';
 import { rulesFrom } from '../lib/examRules';
 import { enterFullscreen, exitFullscreen } from '../lib/fullscreen';
+import { onStreamEnded, openScreen, screenShareSupported, stopStream } from '../lib/media';
 import { idbKV, SecureStore } from '../lib/secureStore';
 import type { AttemptView, Entitlement, ExamPackage, PendingEvent } from '../lib/types';
 import { verifyPackage } from '../lib/verify';
@@ -24,6 +25,29 @@ const store = new SecureStore(idbKV());
 // the attempt (spec sections 6, 9 and 19).
 export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; onExit: () => void }) {
   const [state, setState] = useState<State>({ phase: 'loading' });
+  // The browser's screen share, when the exam records the screen. The desktop application records its own window instead.
+  const screenRef = useRef<MediaStream | null>(null);
+  const [screenShared, setScreenShared] = useState(false);
+
+  // Nobody should stay shared by accident: release the screen if the exam view goes away.
+  useEffect(() => () => stopStream(screenRef.current), []);
+
+  const shareScreen = useCallback(async (): Promise<string | null> => {
+    try {
+      const media = await openScreen();
+      stopStream(screenRef.current);
+      screenRef.current = media;
+      setScreenShared(true);
+      // Stopping the share before the exam starts simply asks for it again.
+      onStreamEnded(media, () => {
+        if (screenRef.current === media) setScreenShared(false);
+      });
+      return null;
+    } catch (err) {
+      const e = err as Error;
+      return e.name === 'NotAllowedError' ? 'Screen sharing was not allowed. The exam cannot start without it.' : e.message;
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,6 +132,11 @@ export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; on
         resuming={entitlement.status === 'active'}
         onStart={() => begin(state.pkg)}
         onBack={onExit}
+        screenShare={
+          state.pkg.exam.manifest.config.security.screenCapture && !getDesktop()
+            ? { shared: screenShared, supported: screenShareSupported(), request: shareScreen }
+            : undefined
+        }
       />
     );
   }
@@ -124,6 +153,7 @@ export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; on
       local={state.local}
       localEvents={state.localEvents}
       store={store}
+      screen={screenRef.current}
       onExit={leave}
     />
   );

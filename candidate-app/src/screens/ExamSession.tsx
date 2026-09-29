@@ -4,6 +4,8 @@ import { createServerClock, formatDuration, timeWarning } from '../lib/clock';
 import { getDesktop } from '../lib/desktop';
 import { EventReporter } from '../lib/eventReporter';
 import { Heartbeat, type HeartbeatReply, type InvigilatorMessage } from '../lib/heartbeat';
+import { type ExamRecording, startExamRecording, streamsFor } from '../lib/examRecording';
+import { openCamera, recordingSupported } from '../lib/media';
 import { noticeText, rulesFrom } from '../lib/examRules';
 import { enterFullscreen, exitFullscreen } from '../lib/fullscreen';
 import { attachExamRules } from '../lib/rules';
@@ -11,7 +13,7 @@ import { type QueuedAnswer, SaveQueue, type SaveStatus } from '../lib/saveQueue'
 import type { SecureStore } from '../lib/secureStore';
 import type { AnswerResponse, AttemptView, ExamManifest, PendingEvent, Receipt, RulesReply } from '../lib/types';
 import { isAnswered, QuestionInput } from './QuestionInput';
-import { type EndedBy, ReceiptScreen } from './ReceiptScreen';
+import { type EndedBy, ReceiptScreen, type UploadState } from './ReceiptScreen';
 
 export interface LocalState {
   pending: QueuedAnswer[];
@@ -25,6 +27,8 @@ interface Props {
   /** Rule events found on this device that the server has not acknowledged. */
   localEvents: PendingEvent[] | null;
   store: SecureStore;
+  /** The browser's screen share, when the exam records the screen. */
+  screen?: MediaStream | null;
   onExit: () => void;
 }
 
@@ -46,7 +50,7 @@ function receiptFrom(err: unknown): Receipt | null {
   return null;
 }
 
-export function ExamSession({ manifest, attempt, local, localEvents, store, onExit }: Props) {
+export function ExamSession({ manifest, attempt, local, localEvents, store, screen = null, onExit }: Props) {
   const questions = manifest.questions;
   const total = questions.length;
   const allowBacktrack = manifest.config.navigation.allowBacktrack;
@@ -68,6 +72,9 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
   const [remaining, setRemaining] = useState(() => deadline - clock.now());
   const [messages, setMessages] = useState<InvigilatorMessage[]>([]);
   const [endedBy, setEndedBy] = useState<EndedBy>(null);
+  const [recordingProblem, setRecordingProblem] = useState<string | null>(null);
+  const [uploadPending, setUploadPending] = useState(0);
+  const [upload, setUpload] = useState<UploadState>('none');
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [phase, setPhase] = useState<Phase>('answering');
   const [receipt, setReceipt] = useState<Receipt | null>(null);
@@ -82,6 +89,7 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
   const positionRef = useRef(index);
   const reporterRef = useRef<EventReporter | null>(null);
   const heartbeatRef = useRef<Heartbeat | null>(null);
+  const recordingRef = useRef<ExamRecording | null>(null);
   // Stops watching the rules. Called the moment the exam ends, so the candidate
   // is not stopped from closing the window on the receipt screen.
   const stopWatchingRef = useRef<() => void>(() => {});
@@ -101,6 +109,12 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
       queueRef.current?.dispose();
       reporterRef.current?.dispose();
       heartbeatRef.current?.stop();
+      // The recording keeps uploading after the exam closes; the receipt shows how it is going.
+      const recording = recordingRef.current;
+      if (recording) {
+        setUpload('uploading');
+        void recording.finish().then((r) => setUpload(r.complete ? 'done' : 'incomplete'));
+      }
       void store.remove(attempt.id);
       void store.remove(`${attempt.id}:events`);
       void desktop?.exitExamMode();
@@ -204,6 +218,56 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
       reporterRef.current = null;
     };
   }, [attempt.id, desktop, finish, localEvents, manifest.config.device.allowExternalMonitors, rules.blockClipboard, rules.fullscreen, store]);
+
+  // Records the camera and the screen when the exam asks for it.
+  useEffect(() => {
+    const sec = manifest.config.security;
+    const needs = { camera: sec.camera, microphone: sec.microphone, screen: sec.screenCapture };
+    if (!streamsFor(needs).length) return;
+    let cancelled = false;
+    const reportStopped = (stream: string, reason: string) => {
+      if (!rulesActiveRef.current) return;
+      reporterRef.current?.report('recording_stopped', { stream, reason });
+      setRecordingProblem(
+        stream === 'screen'
+          ? 'Your screen is no longer being recorded. This has been recorded and your invigilator can see it.'
+          : 'Your camera or microphone is not recording. This has been recorded and your invigilator can see it.',
+      );
+    };
+    (async () => {
+      if (!recordingSupported()) {
+        reportStopped(needs.camera ? 'camera' : 'screen', 'unsupported');
+        return;
+      }
+      let camera: MediaStream | null = null;
+      if (needs.camera || needs.microphone) {
+        camera = await openCamera(needs.camera, needs.microphone).catch(() => null);
+        if (!camera) reportStopped(needs.camera ? 'camera' : 'audio', 'unavailable');
+      }
+      if (needs.screen && !desktop && !screen) reportStopped('screen', 'not_shared');
+      const state = await request<{ next: Record<string, number> }>('GET', `/attempts/${attempt.id}/recording/state`).catch(() => ({ next: {} }));
+      if (cancelled) {
+        camera?.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      recordingRef.current = startExamRecording({
+        attemptId: attempt.id,
+        needs,
+        camera,
+        screen,
+        desktop,
+        next: state.next,
+        onPending: setUploadPending,
+        onStopped: (stream) => reportStopped(stream, 'ended'),
+      });
+    })();
+    return () => {
+      cancelled = true;
+      // Leaving the screen without finishing (for example a reload) still sends what it can.
+      void recordingRef.current?.finish();
+      recordingRef.current = null;
+    };
+  }, [attempt.id, desktop, manifest.config.security, screen]);
 
   // Checks in with the server: messages from the invigilator, extra time, and an exam ended by the invigilator.
   useEffect(() => {
@@ -317,7 +381,8 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
     queueRef.current?.setPosition(next);
   }
 
-  if (phase === 'done' && receipt) return <ReceiptScreen examName={manifest.name} receipt={receipt} endedBy={endedBy} onExit={onExit} />;
+  if (phase === 'done' && receipt)
+    return <ReceiptScreen examName={manifest.name} receipt={receipt} endedBy={endedBy} upload={upload} uploadPending={uploadPending} onExit={onExit} />;
 
   const question = questions[index]!;
   const answeredCount = questions.filter((q) => isAnswered(answers[q.id])).length;
@@ -379,6 +444,11 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
           {messages.length > 1 && <p className="muted small">{messages.length - 1} earlier message{messages.length > 2 ? 's' : ''} from your invigilator.</p>}
           <button onClick={() => setMessages([])}>OK</button>
         </section>
+      )}
+      {recordingProblem && (
+        <p className="banner bad" role="alert">
+          ⚠ {recordingProblem}
+        </p>
       )}
       {notice && !outOfFullscreen && (
         <p className="banner bad" role="alert">

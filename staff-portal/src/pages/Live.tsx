@@ -4,6 +4,7 @@ import { request } from '../lib/api';
 import { formatDateTime, formatDuration, formatTime, label } from '../lib/format';
 import { href } from '../lib/router';
 import { useApi } from '../lib/useApi';
+import { Snapshot } from '../components/media';
 
 const REFRESH_MS = 5000;
 
@@ -168,6 +169,7 @@ interface AttemptDetail {
   submittedAt: string | null;
   submittedBy: string | null;
   lastSeenAt: string | null;
+  snapshotAt: string | null;
   online: boolean;
   fullName: string;
   studentId: string | null;
@@ -231,6 +233,12 @@ function AttemptPanel({ attemptId, offset, now, onClose, onChanged }: { attemptI
             <dt>Last seen</dt>
             <dd>{d.lastSeenAt ? formatTime(d.lastSeenAt) : 'Not yet'}</dd>
           </dl>
+          {(d.snapshotAt || active) && (
+            <figure className="snapshot-box">
+              <Snapshot attemptId={attemptId} at={d.snapshotAt} />
+              {d.snapshotAt && <figcaption className="muted small">Camera at {formatTime(d.snapshotAt)}</figcaption>}
+            </figure>
+          )}
 
           {active && (
             <>

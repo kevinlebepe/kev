@@ -18,6 +18,8 @@ export interface DesktopApi {
   /** Locks the window: kiosk, always on top, screen capture blocked, closing intercepted. */
   enterExamMode(): Promise<void>;
   exitExamMode(): Promise<void>;
+  /** A JPEG of the locked exam window, for the screen recording. Null outside exam mode. Older versions lack it. */
+  captureScreen?(): Promise<Uint8Array | null>;
   onCloseRequested(callback: () => void): () => void;
   onShortcutBlocked(callback: (combo: string) => void): () => void;
   onFullscreenChange(callback: (isFullscreen: boolean) => void): () => void;

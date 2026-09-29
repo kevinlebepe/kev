@@ -16,9 +16,12 @@ export function RulesScreen({
   resuming,
   onStart,
   onBack,
+  screenShare,
 }: {
   manifest: ExamManifest;
   resuming: boolean;
+  /** Set when the exam records the screen and this is a browser: sharing comes first, from its own click. */
+  screenShare?: { shared: boolean; supported: boolean; request: () => Promise<string | null> };
   /** Resolves to an error message, or null when the exam has started. */
   onStart: () => Promise<string | null>;
   onBack: () => void;
@@ -34,6 +37,15 @@ export function RulesScreen({
   const monitored = [security.camera && 'your camera', security.microphone && 'your microphone', security.screenCapture && 'your screen'].filter(
     Boolean,
   ) as string[];
+
+  async function share() {
+    if (!screenShare) return;
+    setBusy(true);
+    setError(null);
+    setError(await screenShare.request());
+    setBusy(false);
+  }
+  const needsShare = Boolean(screenShare && !screenShare.shared);
 
   async function start() {
     setBusy(true);
@@ -80,6 +92,18 @@ export function RulesScreen({
             This device or browser cannot show the exam in full screen. Use the ExamGuard desktop application or another browser.
           </p>
         )}
+        {screenShare && !screenShare.supported && (
+          <p className="error" role="alert">
+            This exam records your screen, and this browser cannot share it. Use a computer with Chrome, Edge or Firefox, or the ExamGuard desktop application.
+          </p>
+        )}
+        {screenShare?.supported && (
+          <p className={`banner ${screenShare.shared ? 'ok' : 'warn'}`} role="status">
+            {screenShare.shared
+              ? '✓ Your screen is being shared for the recording.'
+              : 'This exam records your screen. Press Share my screen and choose your entire screen, not a window or a tab.'}
+          </p>
+        )}
         {error && (
           <p className="error" role="alert">
             {error}
@@ -90,9 +114,15 @@ export function RulesScreen({
           <button onClick={onBack} disabled={busy}>
             Back
           </button>
-          <button className="primary" onClick={start} disabled={busy || cannotFullscreen}>
-            {busy ? 'Starting…' : `${resuming ? 'Continue' : 'Start'} exam${rules.fullscreen ? ' in full screen' : ''}`}
-          </button>
+          {needsShare ? (
+            <button className="primary" onClick={share} disabled={busy || !screenShare?.supported}>
+              {busy ? 'Waiting…' : 'Share my screen'}
+            </button>
+          ) : (
+            <button className="primary" onClick={start} disabled={busy || cannotFullscreen}>
+              {busy ? 'Starting…' : `${resuming ? 'Continue' : 'Start'} exam${rules.fullscreen ? ' in full screen' : ''}`}
+            </button>
+          )}
         </div>
       </section>
     </main>

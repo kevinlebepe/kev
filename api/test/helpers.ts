@@ -5,6 +5,7 @@ import { buildApp } from '../src/app.js';
 import { loadConfig, type Config } from '../src/config.js';
 import { createPool, type Db } from '../src/db.js';
 import { hashPassword } from '../src/auth/passwords.js';
+import { memoryStore } from '../src/storage.js';
 import { TEST_DATABASE_URL } from './globalSetup.js';
 
 export const PASSWORD = 'correct-horse-battery-staple';
@@ -13,6 +14,7 @@ export interface Harness {
   app: FastifyInstance;
   db: Db;
   config: Config;
+  store: ReturnType<typeof memoryStore>;
 }
 
 /** One app + pool per test file. Tests isolate themselves by creating their own organisations. */
@@ -21,7 +23,8 @@ export function useHarness(): Harness {
   beforeAll(async () => {
     h.config = loadConfig({ databaseUrl: TEST_DATABASE_URL, authRateLimitPerMinute: 100_000 });
     h.db = createPool(TEST_DATABASE_URL);
-    h.app = await buildApp({ db: h.db, config: h.config });
+    h.store = memoryStore();
+    h.app = await buildApp({ db: h.db, config: h.config, store: h.store });
   });
   afterAll(async () => {
     await h.app.close();

@@ -3,6 +3,9 @@ import type { Receipt } from '../lib/types';
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'medium' });
 
+/** Where the recording upload stands after the exam closes. */
+export type UploadState = 'none' | 'uploading' | 'done' | 'incomplete';
+
 /** Why the exam ended early, when the app knows. */
 export type EndedBy = 'rules' | 'invigilator' | null;
 
@@ -16,11 +19,15 @@ export function ReceiptScreen({
   examName,
   receipt,
   endedBy = null,
+  upload = 'none',
+  uploadPending = 0,
   onExit,
 }: {
   examName: string;
   receipt: Receipt;
   endedBy?: EndedBy;
+  upload?: UploadState;
+  uploadPending?: number;
   onExit: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -49,6 +56,23 @@ export function ReceiptScreen({
               : '✓ Your answers were received. You can close this window.'}
         </p>
 
+        {upload === 'uploading' && (
+          <p className="banner warn" role="status" aria-live="polite">
+            ↻ Sending the last of your exam recording{uploadPending ? ` (${uploadPending} part${uploadPending === 1 ? '' : 's'} left)` : ''}. Keep this window open until
+            this finishes.
+          </p>
+        )}
+        {upload === 'done' && (
+          <p className="banner ok" role="status">
+            ✓ Your exam recording has been sent.
+          </p>
+        )}
+        {upload === 'incomplete' && (
+          <p className="banner bad" role="alert">
+            ⚠ Part of your exam recording could not be sent. Your answers are safe. Tell your organisation’s exam support.
+          </p>
+        )}
+
         <dl className="receipt-details">
           <dt>Exam</dt>
           <dd>{examName}</dd>
@@ -70,7 +94,7 @@ export function ReceiptScreen({
 
         <div className="row">
           <button onClick={copy}>{copied ? '✓ Copied' : 'Copy receipt'}</button>
-          <button className="primary" onClick={onExit}>
+          <button className="primary" onClick={onExit} disabled={upload === 'uploading'}>
             Back to my exams
           </button>
         </div>

@@ -14,6 +14,7 @@ export const RULE_EVENT_TYPES = [
   'shortcut_blocked',
   'close_attempt',
   'display_added',
+  'recording_stopped',
 ] as const;
 
 export type RuleEventType = (typeof RULE_EVENT_TYPES)[number];
@@ -35,6 +36,10 @@ export const RULE_EVENTS: Record<RuleEventType, RuleEventInfo> = {
   close_attempt: { severity: 'high', counts: true },
   // Plugging in another screen during the exam (desktop application only).
   display_added: { severity: 'high', counts: true },
+  // The camera or screen recording ended during the exam, for example because
+  // screen sharing was stopped. Recorded for review: a failing camera is not
+  // always the candidate's doing, so it does not count.
+  recording_stopped: { severity: 'high', counts: false },
   copy_attempt: { severity: 'warning', counts: false },
   cut_attempt: { severity: 'warning', counts: false },
   paste_attempt: { severity: 'warning', counts: false },

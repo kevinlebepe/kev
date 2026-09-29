@@ -4,6 +4,7 @@ import { type Db, type Queryable, type Tx, withTransaction } from './db.js';
 import { audit } from './audit.js';
 import type { AnswerKey, StoredAnswer } from './marking.js';
 import { recomputeResult } from './results.js';
+import { expectedStreams, verifySubmission } from './recording.js';
 import { canonicalJson, signManifest } from './signing.js';
 
 export type SubmittedBy = 'candidate' | 'timer' | 'system';
@@ -88,12 +89,13 @@ export async function finalizeAttempt(
   };
   const signature = signManifest(receiptPayload(fields), config.examSigning.privateKey).signature;
 
-  // Evidence upload arrives with the recording pipeline, so for now the
-  // submission is "received", not "verified".
+  // An exam that records the candidate is verified only once the recordings
+  // have arrived (spec section 12). Without recording there is nothing to wait for.
+  const needsEvidence = expectedStreams((attempt.manifest as { config?: unknown }).config).length > 0;
   await tx.query(
-    `INSERT INTO submissions (id, organisation_id, attempt_id, package_sha256, status, answered, total, receipt_signature, received_at)
-     VALUES ($1, $2, $3, $4, 'received', $5, $6, $7, $8)`,
-    [fields.receiptId, attempt.organisation_id, attemptId, packageSha256, answers.size, total, signature, submittedAt],
+    `INSERT INTO submissions (id, organisation_id, attempt_id, package_sha256, status, answered, total, receipt_signature, received_at, verified_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $5 = 'verified' THEN $9::timestamptz END)`,
+    [fields.receiptId, attempt.organisation_id, attemptId, packageSha256, needsEvidence ? 'evidence_pending' : 'verified', answers.size, total, signature, submittedAt],
   );
   await tx.query(`UPDATE attempts SET status = 'submitted', submitted_at = $2, submitted_by = $3 WHERE id = $1`, [
     attemptId,
@@ -103,6 +105,7 @@ export async function finalizeAttempt(
   await tx.query(`UPDATE exam_assignments SET status = 'submitted' WHERE id = $1`, [attempt.assignment_id]);
 
   await recomputeResult(tx, attemptId);
+  if (needsEvidence) await verifySubmission(tx, attemptId);
 
   await tx.query(
     `INSERT INTO events (organisation_id, attempt_id, type, severity, occurred_at, data)

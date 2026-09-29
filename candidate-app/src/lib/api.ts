@@ -36,7 +36,15 @@ function storeRefresh(token: string | null) {
   }
 }
 
-async function raw(method: string, path: string, body?: unknown, token = accessToken, keepalive = false): Promise<Response> {
+async function raw(
+  method: string,
+  path: string,
+  body?: unknown,
+  token = accessToken,
+  keepalive = false,
+  extraHeaders: Record<string, string> = {},
+): Promise<Response> {
+  const binary = body instanceof Blob;
   return fetch(`${BASE}${path}`, {
     method,
     keepalive,
@@ -44,10 +52,11 @@ async function raw(method: string, path: string, body?: unknown, token = accessT
       // Lets the server keep desktop only exams away from browsers. It is the
       // app's own claim, so it stops mistakes rather than a determined cheat.
       'x-examguard-client': getDesktop() ? 'desktop' : 'browser',
-      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      ...(body === undefined || binary ? {} : { 'content-type': 'application/json' }),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...extraHeaders,
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : binary ? body : JSON.stringify(body),
   });
 }
 
@@ -87,6 +96,17 @@ export async function request<T>(method: string, path: string, body?: unknown, o
   const data = res.status === 204 ? undefined : await res.json().catch(() => undefined);
   if (!res.ok) throw new ApiError(res.status, data?.error?.message ?? `Request failed (${res.status})`, data?.error?.details);
   return data as T;
+}
+
+/** Sends raw bytes, such as a piece of a recording, with the given content type and headers. */
+export async function sendBlob(path: string, blob: Blob, headers: Record<string, string>): Promise<void> {
+  const h = { 'content-type': blob.type || 'application/octet-stream', ...headers };
+  let res = await raw('POST', path, blob, accessToken, false, h);
+  if (res.status === 401 && (await refresh())) res = await raw('POST', path, blob, accessToken, false, h);
+  if (!res.ok) {
+    const data = await res.json().catch(() => undefined);
+    throw new ApiError(res.status, data?.error?.message ?? `Upload failed (${res.status})`, data?.error?.details);
+  }
 }
 
 export async function signIn(organisation: string, email: string, password: string): Promise<void> {
