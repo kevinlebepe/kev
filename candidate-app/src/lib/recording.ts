@@ -160,6 +160,7 @@ export class PieceUploader {
   private failures = 0;
   private cancelRetry: (() => void) | null = null;
   private waiters: (() => void)[] = [];
+  private kept = new Map<Piece, Promise<void>>();
 
   constructor(
     private readonly opts: {
@@ -167,6 +168,9 @@ export class PieceUploader {
       /** A piece the server will never accept (for example a closed attempt) is dropped. */
       isFatal?(err: unknown): boolean;
       onChange?(pending: number): void;
+      /** Keeps a piece on the device until it is accepted, and forgets it after. */
+      keep?(piece: Piece): Promise<void>;
+      forget?(piece: Piece): Promise<void>;
       retryDelaysMs?: number[];
       schedule?: Schedule;
     },
@@ -176,7 +180,9 @@ export class PieceUploader {
     return this.queue.length;
   }
 
-  add(piece: Piece): void {
+  /** `alreadyKept` is for pieces recovered from the device, which need not be stored again. */
+  add(piece: Piece, alreadyKept = false): void {
+    if (this.opts.keep && !alreadyKept) this.kept.set(piece, this.opts.keep(piece).catch(() => undefined));
     this.queue.push(piece);
     this.opts.onChange?.(this.queue.length);
     void this.pump();
@@ -205,6 +211,10 @@ export class PieceUploader {
         }
         this.queue.shift();
         this.opts.onChange?.(this.queue.length);
+        // Forget it only once it is certainly stored, or a slow save could leave it behind.
+        const kept = this.kept.get(piece);
+        this.kept.delete(piece);
+        if (this.opts.forget) void Promise.resolve(kept).then(() => this.opts.forget!(piece).catch(() => undefined));
       }
       for (const w of this.waiters.splice(0)) w();
     } finally {

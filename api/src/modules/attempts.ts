@@ -64,7 +64,37 @@ interface AttemptRow {
   deadline_at: Date;
   expired: boolean;
   now: Date;
-  manifest: { questions: ManifestQuestion[] };
+  /** Seconds since the app last checked in, or null before the first check in. */
+  away_seconds: number | null;
+  manifest: { questions: ManifestQuestion[]; config?: unknown };
+}
+
+/** A silence longer than this is recorded as the candidate having been offline. */
+export const OFFLINE_EVENT_SECONDS = 60;
+
+/**
+ * Notes that the app is in touch. After a long silence it records how long
+ * the candidate was away, and whether that went past the exam's offline
+ * limit, for the invigilator and the reviewers. Being offline does not end
+ * the exam: the answers are kept on the device and the timer keeps running.
+ */
+async function touch(tx: Tx, attempt: AttemptRow): Promise<void> {
+  if (attempt.status === 'active' && attempt.away_seconds !== null && attempt.away_seconds >= OFFLINE_EVENT_SECONDS) {
+    const offline = examConfig.parse(attempt.manifest.config ?? {}).offline;
+    const exceeded = !offline.allowed || attempt.away_seconds > offline.maxOfflineMinutes * 60;
+    await tx.query(
+      `INSERT INTO events (organisation_id, attempt_id, type, severity, occurred_at, data)
+       VALUES ($1, $2, $3, $4, date_trunc('milliseconds', now()), $5)`,
+      [
+        attempt.organisation_id,
+        attempt.id,
+        exceeded ? 'offline_limit_exceeded' : 'reconnected',
+        exceeded ? 'high' : 'warning',
+        { offlineSeconds: attempt.away_seconds, allowedMinutes: offline.allowed ? offline.maxOfflineMinutes : 0 },
+      ],
+    );
+  }
+  await tx.query('UPDATE attempts SET last_seen_at = now() WHERE id = $1', [attempt.id]);
 }
 
 function validateAnswer(q: ManifestQuestion, response: z.infer<typeof answerResponse>): void {
@@ -168,6 +198,7 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
       `SELECT at.id, at.organisation_id, at.assignment_id, at.exam_version_id, at.status, at.state,
               at.started_at, at.deadline_at, now() AS now,
               now() > at.deadline_at + make_interval(secs => $4) AS expired,
+              extract(epoch FROM now() - at.last_seen_at)::int AS away_seconds,
               v.manifest
          FROM attempts at
          JOIN exam_assignments a ON a.id = at.assignment_id
@@ -297,7 +328,7 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
         return { closed: await finalizeAttempt(tx, config, id, 'timer', { userId: auth.userId, ip: req.ip }) };
       }
       const acked = await applyAnswers(tx, attempt, body.answers);
-      await tx.query('UPDATE attempts SET last_seen_at = now() WHERE id = $1', [id]);
+      await touch(tx, attempt);
       if (body.position !== undefined) {
         await tx.query('UPDATE attempts SET state = jsonb_set(state, $2, to_jsonb($3::int)) WHERE id = $1', [id, ['position'], body.position]);
       }
@@ -321,8 +352,9 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
       if (attempt.status === 'active' && attempt.expired) {
         await finalizeAttempt(tx, config, id, 'timer', { userId: auth.userId, ip: req.ip });
       }
+      await touch(tx, { ...attempt, status: attempt.status === 'active' && attempt.expired ? 'submitted' : attempt.status });
       const { rows: now } = await tx.query<{ status: string; deadline_at: Date; now: Date }>(
-        `UPDATE attempts SET last_seen_at = now() WHERE id = $1 RETURNING status, deadline_at, now()`,
+        `SELECT status, deadline_at, now() FROM attempts WHERE id = $1`,
         [id],
       );
       const { rows: messages } = await tx.query<{ id: string; seq: string; kind: string; body: string; created_at: Date }>(

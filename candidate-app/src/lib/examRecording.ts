@@ -1,6 +1,7 @@
 import { ApiError, request, sendBlob } from './api';
 import type { DesktopApi } from './desktop';
 import { frameGrabber, onStreamEnded, recorderFor, stopStream } from './media';
+import type { PieceVault } from './pieceVault';
 import { FrameRecorder, type Piece, PieceUploader, RecordingSession, SegmentRecorder, sha256Hex, type StreamKind } from './recording';
 
 export const SEGMENT_MS = 30_000;
@@ -41,6 +42,10 @@ export function startExamRecording(opts: {
   desktop: DesktopApi | null;
   /** The next piece number of each stream, from the server, when the exam is reopened. */
   next: Partial<Record<StreamKind, number>>;
+  /** Keeps pieces on the device until they are sent. */
+  vault?: PieceVault;
+  /** Pieces left on the device by an earlier run of this exam, sent first. */
+  recovered?: Piece[];
   onPending(pending: number): void;
   /** A recording stopped during the exam, for example because sharing was ended. */
   onStopped(stream: StreamKind): void;
@@ -55,7 +60,12 @@ export function startExamRecording(opts: {
     // 400/404/409/413: the server will never take this piece, so keep going with the rest.
     isFatal: (err) => err instanceof ApiError && [400, 404, 409, 413, 415].includes(err.status),
     onChange: opts.onPending,
+    ...(opts.vault ? { keep: (p: Piece) => opts.vault!.save(p), forget: (p: Piece) => opts.vault!.remove(p) } : {}),
   });
+  for (const p of opts.recovered ?? []) uploader.add(p, true);
+  // New pieces are numbered after both the server's and the recovered ones.
+  const after = (stream: StreamKind) =>
+    Math.max(opts.next[stream] ?? 0, ...(opts.recovered ?? []).filter((p) => p.stream === stream).map((p) => p.sequence + 1));
   const add = (p: Piece) => uploader.add(p);
   const sources: ConstructorParameters<typeof RecordingSession>[0] = [];
   const cleanups: (() => void)[] = [];
@@ -63,7 +73,7 @@ export function startExamRecording(opts: {
 
   const cameraKind: StreamKind | null = opts.needs.camera ? 'camera' : opts.needs.microphone ? 'audio' : null;
   if (cameraKind && opts.camera) {
-    sources.push({ stream: cameraKind, recorder: new SegmentRecorder({ stream: cameraKind, createRecorder: recorderFor(opts.camera, 250_000), segmentMs: SEGMENT_MS, onPiece: add, firstSequence: opts.next[cameraKind] ?? 0 }) });
+    sources.push({ stream: cameraKind, recorder: new SegmentRecorder({ stream: cameraKind, createRecorder: recorderFor(opts.camera, 250_000), segmentMs: SEGMENT_MS, onPiece: add, firstSequence: after(cameraKind) }) });
     cleanups.push(onStreamEnded(opts.camera, () => opts.onStopped(cameraKind)));
     if (opts.needs.camera) {
       // A still for the live console, best effort: a failed one is simply replaced by the next.
@@ -84,7 +94,7 @@ export function startExamRecording(opts: {
           stream: 'screen',
           everyMs: SCREEN_FRAME_MS,
           onPiece: add,
-          firstSequence: opts.next.screen ?? 0,
+          firstSequence: after('screen'),
           capture: async () => {
             const bytes = await captureScreen();
             return bytes ? new Blob([bytes as BlobPart], { type: 'image/jpeg' }) : null;
@@ -92,7 +102,7 @@ export function startExamRecording(opts: {
         }),
       });
     } else if (opts.screen) {
-      sources.push({ stream: 'screen', recorder: new SegmentRecorder({ stream: 'screen', createRecorder: recorderFor(opts.screen, 400_000), segmentMs: SEGMENT_MS, onPiece: add, firstSequence: opts.next.screen ?? 0 }) });
+      sources.push({ stream: 'screen', recorder: new SegmentRecorder({ stream: 'screen', createRecorder: recorderFor(opts.screen, 400_000), segmentMs: SEGMENT_MS, onPiece: add, firstSequence: after('screen') }) });
       cleanups.push(onStreamEnded(opts.screen, () => opts.onStopped('screen')));
     }
   }

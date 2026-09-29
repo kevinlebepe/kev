@@ -6,6 +6,7 @@ import { EventReporter } from '../lib/eventReporter';
 import { Heartbeat, type HeartbeatReply, type InvigilatorMessage } from '../lib/heartbeat';
 import { type ExamRecording, startExamRecording, streamsFor } from '../lib/examRecording';
 import { openCamera, recordingSupported } from '../lib/media';
+import { PieceVault } from '../lib/pieceVault';
 import { noticeText, rulesFrom } from '../lib/examRules';
 import { enterFullscreen, exitFullscreen } from '../lib/fullscreen';
 import { attachExamRules } from '../lib/rules';
@@ -75,6 +76,8 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
   const [recordingProblem, setRecordingProblem] = useState<string | null>(null);
   const [uploadPending, setUploadPending] = useState(0);
   const [upload, setUpload] = useState<UploadState>('none');
+  // When the connection dropped, as the device saw it. The server records the real gap.
+  const [offlineSince, setOfflineSince] = useState<number | null>(() => (navigator.onLine ? null : Date.now()));
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [phase, setPhase] = useState<Phase>('answering');
   const [receipt, setReceipt] = useState<Receipt | null>(null);
@@ -219,6 +222,21 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
     };
   }, [attempt.id, desktop, finish, localEvents, manifest.config.device.allowExternalMonitors, rules.blockClipboard, rules.fullscreen, store]);
 
+  useEffect(() => {
+    const down = () => setOfflineSince((t) => t ?? Date.now());
+    const up = () => setOfflineSince(null);
+    window.addEventListener('offline', down);
+    window.addEventListener('online', up);
+    return () => {
+      window.removeEventListener('offline', down);
+      window.removeEventListener('online', up);
+    };
+  }, []);
+  useEffect(() => {
+    if (saveStatus === 'offline') setOfflineSince((t) => t ?? Date.now());
+    else if (saveStatus === 'saved' && navigator.onLine) setOfflineSince(null);
+  }, [saveStatus]);
+
   // Records the camera and the screen when the exam asks for it.
   useEffect(() => {
     const sec = manifest.config.security;
@@ -246,6 +264,8 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
       }
       if (needs.screen && !desktop && !screen) reportStopped('screen', 'not_shared');
       const state = await request<{ next: Record<string, number> }>('GET', `/attempts/${attempt.id}/recording/state`).catch(() => ({ next: {} }));
+      const vault = new PieceVault(store, attempt.id);
+      const recovered = await vault.loadAll().catch(() => []);
       if (cancelled) {
         camera?.getTracks().forEach((t) => t.stop());
         return;
@@ -257,6 +277,8 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
         screen,
         desktop,
         next: state.next,
+        vault,
+        recovered,
         onPending: setUploadPending,
         onStopped: (stream) => reportStopped(stream, 'ended'),
       });
@@ -267,7 +289,7 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
       void recordingRef.current?.finish();
       recordingRef.current = null;
     };
-  }, [attempt.id, desktop, manifest.config.security, screen]);
+  }, [attempt.id, desktop, manifest.config.security, screen, store]);
 
   // Checks in with the server: messages from the invigilator, extra time, and an exam ended by the invigilator.
   useEffect(() => {
@@ -444,6 +466,14 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
           {messages.length > 1 && <p className="muted small">{messages.length - 1} earlier message{messages.length > 2 ? 's' : ''} from your invigilator.</p>}
           <button onClick={() => setMessages([])}>OK</button>
         </section>
+      )}
+      {offlineSince !== null && phase !== 'done' && (
+        <p className="banner warn" role="status">
+          ⚠ You are offline ({formatDuration(Date.now() - offlineSince)}). Keep writing: your answers are kept on this device and the timer keeps running.{' '}
+          {manifest.config.offline.allowed
+            ? `Reconnect within ${manifest.config.offline.maxOfflineMinutes} minutes, or your organisation will review this attempt.`
+            : 'This exam expects you to stay online, so your organisation will review the time you were offline.'}
+        </p>
       )}
       {recordingProblem && (
         <p className="banner bad" role="alert">

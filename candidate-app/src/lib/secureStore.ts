@@ -89,6 +89,23 @@ export class SecureStore {
     }
   }
 
+  /** Like save, for raw bytes such as a piece of a recording. */
+  async saveBytes(name: string, bytes: ArrayBuffer): Promise<void> {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await this.key(), bytes);
+    await this.kv.set(`data:${name}`, { iv, data } satisfies Sealed);
+  }
+
+  async loadBytes(name: string): Promise<ArrayBuffer | null> {
+    const sealed = (await this.kv.get(`data:${name}`)) as Sealed | undefined;
+    if (!sealed) return null;
+    try {
+      return await crypto.subtle.decrypt({ name: 'AES-GCM', iv: sealed.iv }, await this.key(), sealed.data);
+    } catch {
+      return null;
+    }
+  }
+
   async remove(name: string): Promise<void> {
     await this.kv.delete(`data:${name}`);
   }

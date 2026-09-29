@@ -143,3 +143,27 @@ describe('sessions', () => {
     expect((await call(h, 'PATCH', `/sessions/${c.sessionId}`, org.owner, { status: 'open' })).status).toBe(409);
   });
 });
+
+describe('offline time', () => {
+  it('records a long silence, and says when it went past the exam’s limit', async () => {
+    const org = await createOrg(h);
+    const c = await watched(org);
+    await call(h, 'POST', `/attempts/${c.attemptId}/heartbeat`, c.token, {});
+    // Short gaps are normal and not recorded.
+    await call(h, 'POST', `/attempts/${c.attemptId}/heartbeat`, c.token, {});
+    await h.db.query(`UPDATE attempts SET last_seen_at = now() - interval '5 minutes' WHERE id = $1`, [c.attemptId]);
+    await call(h, 'POST', `/attempts/${c.attemptId}/heartbeat`, c.token, {});
+    // The exam allows 30 minutes offline by default.
+    await h.db.query(`UPDATE attempts SET last_seen_at = now() - interval '45 minutes' WHERE id = $1`, [c.attemptId]);
+    await call(h, 'PATCH', `/attempts/${c.attemptId}/state`, c.token, { answers: [] });
+
+    const detail = await call(h, 'GET', `/live/attempts/${c.attemptId}`, c.invToken);
+    const offline = detail.body.timeline.filter((e: { type: string }) => ['reconnected', 'offline_limit_exceeded'].includes(e.type));
+    expect(offline.map((e: { type: string; severity: string }) => [e.type, e.severity])).toEqual([
+      ['reconnected', 'warning'],
+      ['offline_limit_exceeded', 'high'],
+    ]);
+    expect(offline[0].data.offlineSeconds).toBeGreaterThanOrEqual(300);
+    expect(offline[1].data.allowedMinutes).toBe(30);
+  });
+});
