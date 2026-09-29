@@ -4,14 +4,18 @@ Secure online assessment, examination and live invigilation platform. The full p
 
 This repository currently holds:
 
-* **`api/`**: the platform API. It covers roadmap phase MVP 1 (organisations, roles, candidate registration and approval) and the server side of MVP 2 (exam entitlements, the pre exam device check and signed exam package delivery). It also enforces the rules the specification marks as critical: the invigilator limit of 10, tenant isolation, immutable signed exam versions and an append only audit trail.
-* **`candidate-app/`**: the web interface layer of the candidate secure application (spec section 9). Candidates sign in, see their exams, run the device check and open a verified exam package. The desktop shell with kiosk mode is a later step.
+* **`api/`**: the platform API. It covers roadmap phase MVP 1 (organisations, roles, candidate registration and approval) the server side of MVP 2 (exam entitlements, the pre exam device check and signed exam package delivery) and MVP 3 (exam attempts with a server owned timer, autosave, submission with a signed receipt and automatic marking). It also enforces the rules the specification marks as critical: the invigilator limit of 10, tenant isolation, immutable signed exam versions and an append only audit trail.
+* **`candidate-app/`**: the web interface layer of the candidate secure application (spec section 9). Candidates sign in, see their exams, run the device check, open a verified exam package, answer with autosave and a countdown, and submit. The desktop shell with kiosk mode is a later step.
 
 See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for what maps to which section of the specification and what comes next.
 
 | Sign in | My exams | Device check | Exam |
 |---|---|---|---|
 | ![Sign in](docs/screenshots/candidate-sign-in.png) | ![My exams](docs/screenshots/candidate-my-exams.png) | ![Device check](docs/screenshots/candidate-device-check.png) | ![Exam](docs/screenshots/candidate-exam.png) |
+
+| Answering with navigation | Connection lost | Submit | Receipt |
+|---|---|---|---|
+| ![Exam](docs/screenshots/attempt-exam.png) | ![Offline](docs/screenshots/attempt-offline.png) | ![Confirm](docs/screenshots/attempt-confirm.png) | ![Receipt](docs/screenshots/attempt-receipt.png) |
 
 ## Try it yourself
 
@@ -41,7 +45,7 @@ npm install
 npm run dev
 ```
 
-The demo command prints a candidate sign in. Open http://localhost:5173, sign in with it, run the device check (allow camera and microphone when asked), then open the exam. On Windows, set the two variables with `set SUPER_ADMIN_EMAIL=...` on separate lines before each command, or use Git Bash.
+The demo command prints a candidate sign in. Open http://localhost:5173, sign in with it, run the device check (allow camera and microphone when asked), then open the exam and answer the questions. Things worth trying: reload the page halfway (you return to the same place with your answers), turn off Wi-Fi and answer a question (it says "Not saved yet" and sends when you reconnect), and submit to see your receipt. You can run the demo command again at any time for a fresh exam. On Windows, set the two variables with `set SUPER_ADMIN_EMAIL=...` on separate lines before each command, or use Git Bash.
 
 ## Stack
 
@@ -131,11 +135,13 @@ api/
     allocation.ts    invigilator allocation algorithm (spec section 7)
     candidateStatus.ts  candidate lifecycle rules (spec section 4)
     readiness.ts     device check evaluation (spec section 10)
+    attempts.ts      closing an attempt: receipt, marking, expiry sweep
+    marking.ts       automatic marking of choice questions
     signing.ts       exam manifest canonicalisation and signing
   test/              unit and integration tests
 candidate-app/
   src/device/        device bridge: browser implementation now, native desktop later
-  src/lib/           API client, package verification
-  src/screens/       sign in, my exams, device check, exam view
+  src/lib/           API client, package verification, server clock, save queue, encrypted local store
+  src/screens/       sign in, my exams, device check, exam session, receipt
 docs/                specification, implementation notes and screenshots
 ```

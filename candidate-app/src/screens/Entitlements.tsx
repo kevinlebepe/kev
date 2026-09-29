@@ -33,6 +33,8 @@ export function Entitlements({
       <ul className="list">
         {items.map((e) => {
           const ready = e.status === 'precheck_complete';
+          const inProgress = e.status === 'active';
+          const submitted = e.status === 'submitted' || e.status === 'completed';
           return (
             <li key={e.id} className="card exam">
               <div>
@@ -49,12 +51,20 @@ export function Entitlements({
                 )}
               </div>
               <div className="exam-actions">
-                <span className={`status ${ready ? 'ok' : e.lastCheckPassed === false ? 'bad' : 'pending'}`}>
-                  {ready ? '✓ Device check passed' : e.lastCheckPassed === false ? '✕ Device check failed' : '○ Device check needed'}
+                <span className={`status ${submitted || ready || inProgress ? 'ok' : e.lastCheckPassed === false ? 'bad' : 'pending'}`}>
+                  {submitted
+                    ? '✓ Submitted'
+                    : inProgress
+                      ? '● In progress'
+                      : ready
+                        ? '✓ Device check passed'
+                        : e.lastCheckPassed === false
+                          ? '✕ Device check failed'
+                          : '○ Device check needed'}
                 </span>
-                <button onClick={() => onCheck(e)}>{ready ? 'Run check again' : 'Run device check'}</button>
-                <button className="primary" disabled={!ready} onClick={() => onOpen(e)}>
-                  Open exam
+                {!submitted && !inProgress && <button onClick={() => onCheck(e)}>{ready ? 'Run check again' : 'Run device check'}</button>}
+                <button className="primary" disabled={!ready && !inProgress} hidden={submitted} onClick={() => onOpen(e)}>
+                  {inProgress ? 'Continue exam' : 'Open exam'}
                 </button>
               </div>
             </li>

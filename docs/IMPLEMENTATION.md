@@ -1,6 +1,6 @@
 # Implementation Notes
 
-Status as at 29 September 2026 (MVP 1 and MVP 2). This file maps the handoff specification (v2.0) to the code and lists what remains.
+Status as at 29 September 2026 (MVP 1, MVP 2 and MVP 3, except recording). This file maps the handoff specification (v2.0) to the code and lists what remains.
 
 ## What is built
 
@@ -32,6 +32,8 @@ Two decisions differ slightly from the specification's wording:
 | Live | `POST /live/assignments` (auto or manual), `POST /live/assignments/:id/release`, `GET /live/sessions/:id` | `invigilation:allocate`, `live:view` |
 | Candidate app | `GET /me/entitlements`, `POST /me/entitlements/:id/precheck`, `GET /me/entitlements/:id/package` | signed in candidate |
 | Readiness | `GET /sessions/:id/readiness` | `session:manage` |
+| Attempts | `POST /attempts/start`, `GET /attempts/:id`, `PATCH /attempts/:id/state`, `POST /attempts/:id/submit` | signed in candidate |
+| Attempt overview | `GET /sessions/:id/attempts` | `report:view` |
 
 ### Specification requirements covered
 
@@ -58,7 +60,16 @@ Two decisions differ slightly from the specification's wording:
 | Package released only after a passed check and inside the session window (s3, s4) | `GET /me/entitlements/:id/package` |
 | Signed entitlement bound to the manifest hash, for local caching (s3) | `entitlement` in the package response |
 | Candidate device verifies package integrity before starting (s6) | `candidate-app/src/lib/verify.ts`; the exam view refuses to show an unverified package |
-| Secure exam layout with timer, question navigation and status indicators that do not rely on colour alone (s9, s23) | `candidate-app/src/screens/ExamView.tsx` |
+| Secure exam layout with timer, question navigation and status indicators that do not rely on colour alone (s9, s23) | `candidate-app/src/screens/ExamSession.tsx` |
+| One attempt per entitlement; starting again resumes it (s9) | unique index on `attempts.assignment_id`; the start route takes the entitlement lock first |
+| The server owns the timer: deadline is the exam duration, capped at the session end (s9, s11) | `attempts.deadline_at`; the app only displays it, anchored to server time (`lib/clock.ts`) |
+| Autosave of every answer, idempotent and safe to retry (s9, s16) | `PATCH /attempts/:id/state`; each answer has a sequence number and the highest wins |
+| Answers validated against the signed manifest, never trusted from the client (s6) | `validateAnswer` in `modules/attempts.ts` |
+| Automatic submission when the timer expires, even if the device never reports back (s9) | client submits at zero; the server closes overdue attempts after a grace period (`finalizeExpiredAttempts`, run every 30 seconds on each instance) |
+| Submission receipt, signed and identical on every retry (s9) | `finalizeAttempt` in `attempts.ts` |
+| Automatic marking of choice questions; free text left for a human (s6) | `marking.ts`; results are stored, never shown to candidates |
+| Autosave survives network loss and restarts, with a visible status that does not rely on colour (s9, s11, s23) | `lib/saveQueue.ts`, `lib/secureStore.ts` |
+| Attempt events and audit trail: started, resumed, submitted, auto submitted (s16, s22) | `events` and `audit_logs` |
 | API instances survive a database failover (s17) | pool error handler in `db.ts`; `test/resilience.test.ts` |
 | CI with typecheck, tests and dependency audit (s21) | `.github/workflows/api.yml`, `.github/workflows/candidate-app.yml` |
 
@@ -74,14 +85,19 @@ Two decisions differ slightly from the specification's wording:
 8. **Desktop shell.** The candidate app runs as a web interface. The spec calls for a desktop application (Tauri or Electron) for kiosk mode. All device access already goes through `DeviceBridge`, so the desktop shell only has to supply a native implementation.
 9. **Browser device checks are partial.** In a browser, virtual machine detection, kiosk mode and the screen capture permission cannot be tested. The browser reports these as passing, and the screen says so. Storage is the browser's quota, not free disk space. The native bridge must report real values.
 10. **Package confidentiality before the start.** The package can be downloaded from 10 minutes before the session (`PACKAGE_PREFETCH_MINUTES`). Earlier offline caching would need the package encrypted, with the key released at the start time.
-11. **Local caching.** The candidate app does not yet store the package and entitlement in an encrypted local store. That arrives with MVP 3 and MVP 5 (local state and offline operation).
+11. **Local encryption is only as strong as a browser allows.** Unsent answers are encrypted with a non extractable AES key held in IndexedDB. That stops other programs reading or editing the data in place, but not the person using the device. The desktop shell should keep the key in the operating system keystore. The package itself is not cached locally yet (MVP 5).
+12. **No recording, so no evidence check yet.** A submission is stored as `received`. It becomes `verified` once the recording pipeline (MVP 4) confirms the evidence chunks. The specification says submission waits for evidence unless policy allows deferral.
+13. **Offline is short term only.** A dropped connection is survived: answers are kept and retried, and the timer keeps running. The full offline engine (local timer policy, maximum offline duration, resumable uploads) is MVP 5. Until then a candidate who is offline at the deadline is submitted by the server with what it holds.
+14. **Marking.** Multiple response is all or nothing. Partial credit needs an organisation policy. There is no screen yet for a human to mark free text, and results are not yet released to candidates (MVP 8).
+15. **Question types.** File upload questions are refused by the API and shown as unsupported in the app.
+16. **Retakes and extra time.** There is one attempt per entitlement. Assigning a candidate again after a failure, and per candidate time accommodations, are not built.
 
 ## Next phases (spec section 24)
 
 | Phase | Scope | Builds on |
 |---|---|---|
 | MVP 2 | Done, except the desktop shell (see gap 8) | |
-| MVP 3 | `POST /attempts/start`, `PATCH /attempts/:id/state` with idempotency keys, submission and auto marking | `attempts`, `answers`, `submissions`, `answer_key` |
+| MVP 3 | Done, except that evidence is not yet checked before a submission counts as verified (gap 12) | |
 | MVP 4 | Chunked recording upload to S3 compatible storage | `recording_streams`, `recording_chunks` (unique on stream and sequence) |
 | MVP 5 | Offline sync and recovery | client side encrypted store, server idempotency |
 | MVP 6 | Live console over WebRTC, presence, failover | `invigilation_assignments` |

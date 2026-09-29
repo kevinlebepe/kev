@@ -1,26 +1,23 @@
 import { useEffect, useState } from 'react';
 import { request } from '../lib/api';
-import type { Entitlement, ExamPackage } from '../lib/types';
-import { type PackageVerification, verifyPackage } from '../lib/verify';
+import { idbKV, SecureStore } from '../lib/secureStore';
+import type { AttemptView, Entitlement, ExamPackage } from '../lib/types';
+import { verifyPackage } from '../lib/verify';
+import { ExamSession, type LocalState } from './ExamSession';
+import { ReceiptScreen } from './ReceiptScreen';
 
 type State =
   | { phase: 'loading' }
   | { phase: 'error'; message: string }
-  | { phase: 'ready'; pkg: ExamPackage; verification: PackageVerification };
+  | { phase: 'ready'; pkg: ExamPackage; attempt: AttemptView; local: LocalState | null };
 
-function formatDuration(minutes?: number) {
-  if (!minutes) return '--:--:--';
-  const h = Math.floor(minutes / 60);
-  return `${String(h).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}:00`;
-}
+// One store per browser profile; the key inside it is created on first use.
+const store = new SecureStore(idbKV());
 
-// Downloads and verifies the signed package, then shows the exam in the
-// secure layout (spec section 9). Answering and the running timer arrive
-// with attempts in MVP 3; until then the questions are shown read only.
+// Downloads and verifies the signed package, starts (or resumes) the attempt,
+// and only then shows any exam content (spec sections 6 and 9).
 export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; onExit: () => void }) {
   const [state, setState] = useState<State>({ phase: 'loading' });
-  const [index, setIndex] = useState(0);
-  const [selected, setSelected] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -31,7 +28,16 @@ export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; on
           request<{ publicKeyPem: string }>('GET', '/exam-signing-key'),
         ]);
         const verification = await verifyPackage(key.publicKeyPem, pkg);
-        if (!cancelled) setState({ phase: 'ready', pkg, verification });
+        if (!verification.ok) {
+          // Never show content from a package that fails integrity checks.
+          if (!cancelled) {
+            setState({ phase: 'error', message: 'The downloaded exam failed its integrity check. Do not continue; contact exam support.' });
+          }
+          return;
+        }
+        const attempt = await request<AttemptView>('POST', '/attempts/start', { assignmentId: entitlement.id });
+        const local = attempt.status === 'active' ? await store.load<LocalState>(attempt.id) : null;
+        if (!cancelled) setState({ phase: 'ready', pkg, attempt, local });
       } catch (err) {
         if (!cancelled) setState({ phase: 'error', message: (err as Error).message });
       }
@@ -42,7 +48,11 @@ export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; on
   }, [entitlement.id]);
 
   if (state.phase === 'loading') {
-    return <section className="card" aria-busy="true">Downloading and verifying your exam…</section>;
+    return (
+      <section className="card" aria-busy="true">
+        Downloading and verifying your exam…
+      </section>
+    );
   }
   if (state.phase === 'error') {
     return (
@@ -55,87 +65,10 @@ export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; on
       </section>
     );
   }
-  if (!state.verification.ok) {
-    // Never show content from a package that fails integrity checks.
-    return (
-      <section className="card">
-        <h1>Exam package could not be verified</h1>
-        <p className="error" role="alert">
-          The downloaded exam failed its integrity check. Do not continue; contact exam support.
-        </p>
-        <button onClick={onExit}>Back to my exams</button>
-      </section>
-    );
-  }
 
   const { manifest } = state.pkg.exam;
-  const question = manifest.questions[index]!;
-  const total = manifest.questions.length;
-  const security = manifest.config.security;
-  const indicators = [
-    security.screenCapture && 'RECORDING',
-    security.camera && 'CAMERA',
-    security.microphone && 'MICROPHONE',
-    security.kiosk && 'SECURE MODE',
-  ].filter(Boolean) as string[];
-
-  return (
-    <div className="exam-shell">
-      <header className="exam-bar">
-        <span className="brand">EXAMGUARD</span>
-        <span>{manifest.name}</span>
-        <span className="timer" aria-label="Time remaining">
-          REMAINING <strong>{formatDuration(manifest.config.timing.durationMinutes)}</strong>
-        </span>
-      </header>
-
-      <main className="question card">
-        <p className="muted">
-          QUESTION {index + 1} OF {total} · {question.points} {question.points === 1 ? 'mark' : 'marks'}
-        </p>
-        <h1 className="prompt">{question.prompt}</h1>
-        {question.options.length > 0 ? (
-          <fieldset className="options">
-            <legend className="sr-only">Options</legend>
-            {question.options.map((o) => (
-              <label key={o.id} className={`option ${selected[question.id] === o.id ? 'chosen' : ''}`}>
-                <input
-                  type="radio"
-                  name={question.id}
-                  checked={selected[question.id] === o.id}
-                  onChange={() => setSelected((s) => ({ ...s, [question.id]: o.id }))}
-                />
-                {o.label}
-              </label>
-            ))}
-          </fieldset>
-        ) : (
-          <textarea className="answer" rows={8} placeholder="Type your answer" aria-label="Your answer" />
-        )}
-        <p className="muted small">Preview: answers are not saved until exam attempts are enabled.</p>
-
-        <div className="row spread">
-          <button disabled={index === 0 || !manifest.config.navigation.allowBacktrack} onClick={() => setIndex(index - 1)}>
-            ‹ Previous
-          </button>
-          {index < total - 1 ? (
-            <button className="primary" onClick={() => setIndex(index + 1)}>
-              Save and next ›
-            </button>
-          ) : (
-            <button className="primary" onClick={onExit}>
-              Finish preview
-            </button>
-          )}
-        </div>
-      </main>
-
-      <footer className="exam-status" aria-label="Security status">
-        {indicators.map((i) => (
-          <span key={i}>● {i}</span>
-        ))}
-        <span>✓ PACKAGE VERIFIED (v{manifest.version})</span>
-      </footer>
-    </div>
-  );
+  if (state.attempt.status !== 'active' && state.attempt.receipt) {
+    return <ReceiptScreen examName={manifest.name} receipt={state.attempt.receipt} onExit={onExit} />;
+  }
+  return <ExamSession key={state.attempt.id} manifest={manifest} attempt={state.attempt} local={state.local} store={store} onExit={onExit} />;
 }

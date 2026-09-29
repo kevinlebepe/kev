@@ -11,6 +11,8 @@
   --bad: #b3261e;
   --bad-bg: #fbeae9;
   --pending: #7a5a00;
+  --warn: #8a5300;
+  --warn-bg: #fff2d9;
   --focus: #1f5fbf;
   color-scheme: light;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -32,6 +34,8 @@
     --bad: #ff8a80;
     --bad-bg: #3a1a18;
     --pending: #e8c96b;
+    --warn: #ffcf70;
+    --warn-bg: #3a2c10;
     --focus: #6ea4ff;
     color-scheme: dark;
   }
@@ -132,3 +136,30 @@ label input { margin-top: 0.35rem; font-weight: 400; }
 .option input { width: auto; margin: 0; }
 .option.chosen { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .answer { margin-bottom: 1rem; }
+
+/* Attempts (MVP 3) */
+.banner.warn { background: var(--warn-bg); color: var(--warn); }
+.time-warning { margin: 0; border-radius: 0; text-align: center; }
+.exam-shell > .banner.bad { margin: 0; border-radius: 0; }
+.timer.urgent strong { color: var(--warn); }
+.save-status.saved { color: var(--ok); }
+.save-status.saving { color: var(--muted); }
+.save-status.offline, .save-status.closed { color: var(--bad); }
+
+.exam-body { flex: 1; display: grid; grid-template-columns: 1fr; gap: 1rem; padding: 1.5rem 16px; width: 100%; max-width: 1040px; margin: 0 auto; align-items: start; }
+.exam-body.with-nav { grid-template-columns: 200px 1fr; }
+.exam-body .question { margin: 0; max-width: none; }
+.qnav ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 0.4rem; }
+.qnav button { width: 100%; padding: 0.4rem 0.2rem; font-variant-numeric: tabular-nums; }
+.qnav button.current { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); font-weight: 700; }
+@media (max-width: 720px) { .exam-body.with-nav { grid-template-columns: 1fr; } }
+
+.answer-line { margin-bottom: 1rem; }
+.receipt { width: 100%; max-width: 560px; }
+.receipt-details { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 1rem 0; }
+.receipt-details dt { color: var(--muted); }
+.receipt-details dd { margin: 0; overflow-wrap: anywhere; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9rem; }
+[hidden] { display: none !important; }
+
+.submit-now { margin-top: 1.25rem; margin-bottom: 0; }

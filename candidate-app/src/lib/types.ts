@@ -60,3 +60,36 @@ export interface ExamPackage {
     signature: string;
   };
 }
+
+export type AnswerResponse = { optionId: string } | { optionIds: string[] } | { text: string };
+
+export interface SavedAnswer {
+  questionId: string;
+  response: AnswerResponse;
+  seq: number;
+}
+
+export interface Receipt {
+  receiptId: string;
+  attemptId: string;
+  submittedAt: string;
+  submittedBy: 'candidate' | 'timer' | 'system';
+  answered: number;
+  total: number;
+  packageSha256: string;
+  signature: string;
+}
+
+export interface AttemptView {
+  id: string;
+  assignmentId: string;
+  status: 'active' | 'submitted' | 'completed' | 'abandoned';
+  startedAt: string;
+  deadlineAt: string;
+  /** Server time when this response was produced; anchors the countdown. */
+  serverTime: string;
+  position: number;
+  answers: SavedAnswer[];
+  receipt: Receipt | null;
+  resumed?: boolean;
+}
