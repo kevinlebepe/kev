@@ -1,0 +1,141 @@
+import { useCallback, useEffect, useState } from 'react';
+import { request, resumeSession, signOut } from './lib/api';
+import { href, useRoute } from './lib/router';
+import { can, type Me, MeContext } from './lib/session';
+import { Login } from './pages/Login';
+import { Overview } from './pages/Overview';
+import { Candidates } from './pages/Candidates';
+import { Exams, ExamDetail } from './pages/Exams';
+import { Sessions, SessionDetail } from './pages/Sessions';
+import { Invigilators } from './pages/Invigilators';
+import { LiveSessions, LiveConsole } from './pages/Live';
+import { Results, Marking } from './pages/Results';
+import { Staff } from './pages/Staff';
+import { Audit } from './pages/Audit';
+
+interface NavItem {
+  path: string;
+  text: string;
+  permission: string;
+}
+
+const NAV: NavItem[] = [
+  { path: 'live', text: 'Live console', permission: 'live:view' },
+  { path: 'sessions', text: 'Sessions', permission: 'session:manage' },
+  { path: 'exams', text: 'Exams', permission: 'exam:create' },
+  { path: 'candidates', text: 'Candidates', permission: 'candidate:view' },
+  { path: 'invigilators', text: 'Invigilators', permission: 'invigilator:create' },
+  { path: 'staff', text: 'Staff', permission: 'organisation:manage_users' },
+  { path: 'audit', text: 'Audit log', permission: 'audit:view' },
+];
+
+export function App() {
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
+  const [notice, setNotice] = useState<string | null>(null);
+  const route = useRoute();
+
+  const load = useCallback(async () => {
+    try {
+      const data = await request<Me>('GET', '/me');
+      if (!data.organisationId || data.permissions.length === 0) {
+        await signOut();
+        setNotice('This account has no staff access. Candidates sign in to the ExamGuard exam app instead.');
+        setMe(null);
+        return;
+      }
+      setNotice(null);
+      setMe(data);
+    } catch {
+      setMe(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    resumeSession().then((ok) => (ok ? load() : setMe(null)));
+  }, [load]);
+
+  if (me === undefined) return <main className="centered">Starting…</main>;
+  if (me === null) return <Login onSignedIn={load} notice={notice} />;
+
+  const nav = NAV.filter((n) => can(me, n.permission));
+  const [section, id, sub] = route;
+
+  return (
+    <MeContext.Provider value={me}>
+      <div className="shell">
+        <aside className="sidebar">
+          <a className="brand" href="#/">
+            EXAMGUARD
+          </a>
+          <nav aria-label="Sections">
+            <ul>
+              <li>
+                <a href="#/" aria-current={!section ? 'page' : undefined}>
+                  Overview
+                </a>
+              </li>
+              {nav.map((n) => (
+                <li key={n.path}>
+                  <a href={href(n.path)} aria-current={section === n.path ? 'page' : undefined}>
+                    {n.text}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          <div className="who">
+            <span>{me.user.display_name}</span>
+            <span className="muted small">{me.user.email}</span>
+            <button
+              className="link"
+              onClick={async () => {
+                await signOut();
+                setMe(null);
+              }}
+            >
+              Sign out
+            </button>
+          </div>
+        </aside>
+        <main className="content">{render(section, id, sub)}</main>
+      </div>
+    </MeContext.Provider>
+  );
+}
+
+function render(section: string | undefined, id: string | undefined, sub: string | undefined) {
+  switch (section) {
+    case undefined:
+      return <Overview />;
+    case 'candidates':
+      return <Candidates />;
+    case 'exams':
+      return id ? <ExamDetail id={id} /> : <Exams />;
+    case 'sessions':
+      if (id && sub === 'results') return <Results sessionId={id} />;
+      return id ? <SessionDetail id={id} /> : <Sessions />;
+    case 'marking':
+      return id ? <Marking attemptId={id} /> : <NotFound />;
+    case 'invigilators':
+      return <Invigilators />;
+    case 'live':
+      return id ? <LiveConsole sessionId={id} /> : <LiveSessions />;
+    case 'staff':
+      return <Staff />;
+    case 'audit':
+      return <Audit />;
+    default:
+      return <NotFound />;
+  }
+}
+
+function NotFound() {
+  return (
+    <section className="page">
+      <h1>Page not found</h1>
+      <p>
+        <a href="#/">Back to the overview</a>
+      </p>
+    </section>
+  );
+}

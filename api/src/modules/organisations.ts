@@ -161,10 +161,11 @@ export async function organisationRoutes(app: FastifyInstance, deps: AppDeps) {
     const auth = requireOrg(req);
     const { limit, offset } = parse(pagination, req.query);
     const { rows } = await db.query(
-      `SELECT id, actor_user_id AS "actorUserId", action, target_type AS "targetType", target_id AS "targetId",
-              data, ip, created_at AS "createdAt"
-         FROM audit_logs WHERE organisation_id = $1
-        ORDER BY id DESC LIMIT $2 OFFSET $3`,
+      `SELECT l.id, l.actor_user_id AS "actorUserId", u.email AS "actorEmail", l.action, l.target_type AS "targetType",
+              l.target_id AS "targetId", l.data, l.ip, l.created_at AS "createdAt"
+         FROM audit_logs l LEFT JOIN users u ON u.id = l.actor_user_id
+        WHERE l.organisation_id = $1
+        ORDER BY l.id DESC LIMIT $2 OFFSET $3`,
       [auth.organisationId, limit, offset],
     );
     return page(rows, limit, offset);

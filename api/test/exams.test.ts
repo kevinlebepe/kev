@@ -57,3 +57,15 @@ describe('exam publishing', () => {
     );
   });
 });
+
+describe('published versions list', () => {
+  it('lists versions for session creation, inside the organisation only', async () => {
+    const org = await createOrg(h);
+    const { versionId } = await publishedExam(h, org);
+    const res = await call(h, 'GET', '/exam-versions', org.owner);
+    expect(res.status).toBe(200);
+    expect(res.body.items[0]).toMatchObject({ id: versionId, version: 1, name: 'Mathematics 101', durationMinutes: 90 });
+    const other = await createOrg(h);
+    expect((await call(h, 'GET', '/exam-versions', other.owner)).body.items).toEqual([]);
+  });
+});

@@ -328,6 +328,22 @@ export async function examRoutes(app: FastifyInstance, deps: AppDeps) {
     return reply.code(201).send(version);
   });
 
+  // Published versions a session can be created for, newest first.
+  app.get('/exam-versions', { preHandler: authorize('session:manage') }, async (req) => {
+    const auth = requireOrg(req);
+    const { limit, offset } = parse(pagination, req.query);
+    const { rows } = await db.query(
+      `SELECT v.id, v.exam_id AS "examId", v.version, v.published_at AS "publishedAt",
+              v.manifest->>'code' AS code, v.manifest->>'name' AS name,
+              (v.manifest#>>'{config,timing,durationMinutes}')::int AS "durationMinutes"
+         FROM exam_versions v JOIN exams e ON e.id = v.exam_id
+        WHERE v.organisation_id = $1 AND e.status <> 'archived'
+        ORDER BY v.published_at DESC, v.id LIMIT $2 OFFSET $3`,
+      [auth.organisationId, limit, offset],
+    );
+    return page(rows, limit, offset);
+  });
+
   // Signed package for staff preview; candidate delivery (with entitlement checks) is MVP-2.
   app.get('/exam-versions/:id/package', { preHandler: authorize('exam:create') }, async (req) => {
     const auth = requireOrg(req);

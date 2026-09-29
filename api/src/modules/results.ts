@@ -97,8 +97,8 @@ export async function resultRoutes(app: FastifyInstance, deps: AppDeps) {
   app.get('/marking/attempts/:id', { preHandler: authorize('result:mark') }, async (req) => {
     const auth = requireOrg(req);
     const { id } = parse(idParams, req.params);
-    const { rows } = await db.query<{ status: string; result_status: string | null; full_name: string; student_id: string | null; session_name: string; exam_name: string }>(
-      `SELECT at.status, r.status AS result_status, c.full_name, c.student_id, s.name AS session_name, v.manifest->>'name' AS exam_name
+    const { rows } = await db.query<{ status: string; result_status: string | null; full_name: string; student_id: string | null; session_id: string; session_name: string; exam_name: string }>(
+      `SELECT at.status, r.status AS result_status, c.full_name, c.student_id, s.id AS session_id, s.name AS session_name, v.manifest->>'name' AS exam_name
          FROM attempts at
          JOIN exam_assignments a ON a.id = at.assignment_id
          JOIN candidates c ON c.id = a.candidate_id
@@ -118,6 +118,7 @@ export async function resultRoutes(app: FastifyInstance, deps: AppDeps) {
     return {
       attemptId: id,
       candidate: { fullName: row.full_name, studentId: row.student_id },
+      sessionId: row.session_id,
       sessionName: row.session_name,
       examName: row.exam_name,
       status: row.result_status ?? 'pending',
