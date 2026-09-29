@@ -34,9 +34,10 @@ function storeRefresh(token: string | null) {
   }
 }
 
-async function raw(method: string, path: string, body?: unknown, token = accessToken): Promise<Response> {
+async function raw(method: string, path: string, body?: unknown, token = accessToken, keepalive = false): Promise<Response> {
   return fetch(`${BASE}${path}`, {
     method,
+    keepalive,
     headers: {
       ...(body === undefined ? {} : { 'content-type': 'application/json' }),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
@@ -71,9 +72,13 @@ async function doRefresh(): Promise<boolean> {
   return true;
 }
 
-export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  let res = await raw(method, path, body);
-  if (res.status === 401 && (await refresh())) res = await raw(method, path, body);
+/**
+ * `keepalive` lets a request finish even while the page is being closed, which
+ * is how a close attempt is reported before the window goes away.
+ */
+export async function request<T>(method: string, path: string, body?: unknown, opts: { keepalive?: boolean } = {}): Promise<T> {
+  let res = await raw(method, path, body, accessToken, opts.keepalive);
+  if (res.status === 401 && (await refresh())) res = await raw(method, path, body, accessToken, opts.keepalive);
   const data = res.status === 204 ? undefined : await res.json().catch(() => undefined);
   if (!res.ok) throw new ApiError(res.status, data?.error?.message ?? `Request failed (${res.status})`, data?.error?.details);
   return data as T;

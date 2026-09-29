@@ -163,3 +163,13 @@ label input { margin-top: 0.35rem; font-weight: 400; }
 [hidden] { display: none !important; }
 
 .submit-now { margin-top: 1.25rem; margin-bottom: 0; }
+
+/* Exam rules */
+.exam-locked { -webkit-user-select: none; user-select: none; }
+.exam-locked textarea, .exam-locked input[type='text'] { -webkit-user-select: text; user-select: text; }
+.overlay { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: grid; place-items: center; padding: 16px; }
+.overlay-card { max-width: 520px; width: 100%; }
+.timer-large strong { font-size: 1.6rem; font-variant-numeric: tabular-nums; margin-left: 0.4rem; }
+.rules { width: 100%; max-width: 640px; }
+.rules h2 { font-size: 1.05rem; color: var(--muted); font-weight: 500; }
+.rule-list { padding-left: 1.2rem; margin: 0 0 1rem; display: grid; gap: 0.5rem; }

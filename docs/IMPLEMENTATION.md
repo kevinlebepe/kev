@@ -1,6 +1,6 @@
 # Implementation Notes
 
-Status as at 29 September 2026 (MVP 1, MVP 2 and MVP 3, except recording). This file maps the handoff specification (v2.0) to the code and lists what remains.
+Status as at 29 September 2026 (MVP 1, MVP 2 and MVP 3 except recording, plus the exam rules layer from MVP 7). This file maps the handoff specification (v2.0) to the code and lists what remains.
 
 ## What is built
 
@@ -33,7 +33,8 @@ Two decisions differ slightly from the specification's wording:
 | Candidate app | `GET /me/entitlements`, `POST /me/entitlements/:id/precheck`, `GET /me/entitlements/:id/package` | signed in candidate |
 | Readiness | `GET /sessions/:id/readiness` | `session:manage` |
 | Attempts | `POST /attempts/start`, `GET /attempts/:id`, `PATCH /attempts/:id/state`, `POST /attempts/:id/submit` | signed in candidate |
-| Attempt overview | `GET /sessions/:id/attempts` | `report:view` |
+| Exam rules | `POST /attempts/:id/events` | signed in candidate |
+| Attempt overview and timeline | `GET /sessions/:id/attempts`, `GET /attempts/:id/timeline` | `report:view` |
 
 ### Specification requirements covered
 
@@ -70,6 +71,13 @@ Two decisions differ slightly from the specification's wording:
 | Automatic marking of choice questions; free text left for a human (s6) | `marking.ts`; results are stored, never shown to candidates |
 | Autosave survives network loss and restarts, with a visible status that does not rely on colour (s9, s11, s23) | `lib/saveQueue.ts`, `lib/secureStore.ts` |
 | Attempt events and audit trail: started, resumed, submitted, auto submitted (s16, s22) | `events` and `audit_logs` |
+| Candidate is told the rules and consequences before the timer starts (s19) | `screens/RulesScreen.tsx`; the attempt starts only when the candidate presses start |
+| Exam runs in full screen; leaving hides the exam until the candidate returns (s9) | `lib/fullscreen.ts`, `lib/rules.ts`, overlay in `ExamSession.tsx` |
+| Copy, cut, paste, drag and drop, right click, print, save, view source and developer tools shortcuts blocked (s9) | `lib/rules.ts` (best effort in a browser) |
+| Switching tab or program, and trying to close or reload, detected and reported (s8, s9) | `lib/rules.ts`; close attempts are sent with a request that outlives the page |
+| The server counts violations and applies the exam's policy: record, warn then submit, or submit at once (s18) | `rules.ts`, `POST /attempts/:id/events`; the app cannot change the outcome, and a policy claimed by the app is ignored |
+| Violations cannot be hidden by going offline; events are kept on the device and delivered later (s11) | `lib/eventReporter.ts`; events carry an id so retries never double count |
+| Technical events are presented as events, with the organisation deciding the consequence (s18) | `violationPolicy` in the exam's security config; default is `flag` |
 | API instances survive a database failover (s17) | pool error handler in `db.ts`; `test/resilience.test.ts` |
 | CI with typecheck, tests and dependency audit (s21) | `.github/workflows/api.yml`, `.github/workflows/candidate-app.yml` |
 
@@ -82,7 +90,7 @@ Two decisions differ slightly from the specification's wording:
 5. **Database level tenant isolation.** Isolation is enforced in application queries and covered by tests. PostgreSQL row level security would add a second layer.
 6. **Staff onboarding.** New staff and invigilators are created with a password set by an administrator. An emailed invitation flow like the one for candidates should replace this.
 7. **Invigilator failover.** Assignments are preserved when an invigilator is paused. Automatic reassignment and the `disconnected` status need live presence, which arrives with the live console in MVP 6.
-8. **Desktop shell.** The candidate app runs as a web interface. The spec calls for a desktop application (Tauri or Electron) for kiosk mode. All device access already goes through `DeviceBridge`, so the desktop shell only has to supply a native implementation.
+8. **Desktop shell.** A web page cannot enforce the exam rules; it can only detect and report them. In a browser the candidate can exit full screen (the app hides the exam and reports it), switch tabs or programs (reported), and close the window (a prompt appears and the attempt is reported). The candidate can still use a second device, take a photo of the screen, or use a screenshot tool, and none of that is detectable. Real enforcement needs the desktop application: kiosk mode, blocked system shortcuts, a disabled clipboard, protection against screen capture of the exam window, detection of extra displays and virtual machines, and closing intercepted. Even then, on an unmanaged laptop the operating system keeps some keys, such as Ctrl+Alt+Del on Windows, so the specification's guidance to use managed devices for the strictest exams still applies. The candidate app runs as a web interface today. The spec calls for a desktop application (Tauri or Electron) for kiosk mode. All device access already goes through `DeviceBridge`, so the desktop shell only has to supply a native implementation.
 9. **Browser device checks are partial.** In a browser, virtual machine detection, kiosk mode and the screen capture permission cannot be tested. The browser reports these as passing, and the screen says so. Storage is the browser's quota, not free disk space. The native bridge must report real values.
 10. **Package confidentiality before the start.** The package can be downloaded from 10 minutes before the session (`PACKAGE_PREFETCH_MINUTES`). Earlier offline caching would need the package encrypted, with the key released at the start time.
 11. **Local encryption is only as strong as a browser allows.** Unsent answers are encrypted with a non extractable AES key held in IndexedDB. That stops other programs reading or editing the data in place, but not the person using the device. The desktop shell should keep the key in the operating system keystore. The package itself is not cached locally yet (MVP 5).
@@ -90,7 +98,8 @@ Two decisions differ slightly from the specification's wording:
 13. **Offline is short term only.** A dropped connection is survived: answers are kept and retried, and the timer keeps running. The full offline engine (local timer policy, maximum offline duration, resumable uploads) is MVP 5. Until then a candidate who is offline at the deadline is submitted by the server with what it holds.
 14. **Marking.** Multiple response is all or nothing. Partial credit needs an organisation policy. There is no screen yet for a human to mark free text, and results are not yet released to candidates (MVP 8).
 15. **Question types.** File upload questions are refused by the API and shown as unsupported in the app.
-16. **Retakes and extra time.** There is one attempt per entitlement. Assigning a candidate again after a failure, and per candidate time accommodations, are not built.
+16. **What counts as a violation.** Leaving full screen, leaving the window (another tab or program) and trying to close or reload count. Blocked clipboard and shortcut attempts are recorded but do not count, because the action was already prevented and an accidental Ctrl+C should not end someone's exam. Reloading the page counts as a close attempt. Sending a notification, an operating system pop up or a screen reader dialog that takes focus can look like leaving the window, so organisations should choose `warn_then_submit` with a sensible limit unless they accept ending exams for such events. Accessibility accommodations that need other software must be configured explicitly (specification section 23), and that is not built.
+17. **Retakes and extra time.** There is one attempt per entitlement. Assigning a candidate again after a failure, and per candidate time accommodations, are not built.
 
 ## Next phases (spec section 24)
 
@@ -101,7 +110,7 @@ Two decisions differ slightly from the specification's wording:
 | MVP 4 | Chunked recording upload to S3 compatible storage | `recording_streams`, `recording_chunks` (unique on stream and sequence) |
 | MVP 5 | Offline sync and recovery | client side encrypted store, server idempotency |
 | MVP 6 | Live console over WebRTC, presence, failover | `invigilation_assignments` |
-| MVP 7 | Voice contact, events, blackout reports | `invigilation_contacts`, `events` |
+| MVP 7 | Rule events and timeline are done. Still to do: voice contact and blackout reports | `invigilation_contacts`, `events` |
 | MVP 8 | Results release, recording review, exports, integrations | `results`, `integration_configs` |
 
 The admin portal and invigilator console (React and TypeScript, spec section 13) have not been started. They can be built against the endpoints above, reusing the patterns in `candidate-app/`.

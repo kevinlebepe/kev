@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, request } from '../lib/api';
 import { createServerClock, formatDuration, timeWarning } from '../lib/clock';
+import { EventReporter } from '../lib/eventReporter';
+import { noticeText, rulesFrom } from '../lib/examRules';
+import { enterFullscreen, exitFullscreen } from '../lib/fullscreen';
+import { attachExamRules } from '../lib/rules';
 import { type QueuedAnswer, SaveQueue, type SaveStatus } from '../lib/saveQueue';
 import type { SecureStore } from '../lib/secureStore';
-import type { AnswerResponse, AttemptView, ExamManifest, Receipt } from '../lib/types';
+import type { AnswerResponse, AttemptView, ExamManifest, PendingEvent, Receipt, RulesReply } from '../lib/types';
 import { isAnswered, QuestionInput } from './QuestionInput';
 import { ReceiptScreen } from './ReceiptScreen';
 
@@ -16,6 +20,8 @@ interface Props {
   attempt: AttemptView;
   /** Unsent answers found on this device from an earlier run of the same attempt. */
   local: LocalState | null;
+  /** Rule events found on this device that the server has not acknowledged. */
+  localEvents: PendingEvent[] | null;
   store: SecureStore;
   onExit: () => void;
 }
@@ -38,11 +44,12 @@ function receiptFrom(err: unknown): Receipt | null {
   return null;
 }
 
-export function ExamSession({ manifest, attempt, local, store, onExit }: Props) {
+export function ExamSession({ manifest, attempt, local, localEvents, store, onExit }: Props) {
   const questions = manifest.questions;
   const total = questions.length;
   const deadline = Date.parse(attempt.deadlineAt);
   const allowBacktrack = manifest.config.navigation.allowBacktrack;
+  const rules = rulesFrom(manifest);
 
   const [clock] = useState(() => createServerClock(attempt.serverTime));
   const [answers, setAnswers] = useState<Record<string, AnswerResponse>>(() => {
@@ -57,11 +64,17 @@ export function ExamSession({ manifest, attempt, local, store, onExit }: Props) 
   const [phase, setPhase] = useState<Phase>('answering');
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(() => !rules.fullscreen || Boolean(document.fullscreenElement));
+  const [notice, setNotice] = useState<string | null>(null);
+  const [returnFailed, setReturnFailed] = useState(false);
 
   const queueRef = useRef<SaveQueue | null>(null);
   const phaseRef = useRef<Phase>('answering');
   const submittingRef = useRef(false);
   const positionRef = useRef(index);
+  const reporterRef = useRef<EventReporter | null>(null);
+  // Set to false the moment the exam ends, so leaving full screen afterwards is not reported.
+  const rulesActiveRef = useRef(true);
 
   const changePhase = useCallback((next: Phase) => {
     phaseRef.current = next;
@@ -70,8 +83,12 @@ export function ExamSession({ manifest, attempt, local, store, onExit }: Props) 
 
   const finish = useCallback(
     (r: Receipt) => {
+      rulesActiveRef.current = false;
       queueRef.current?.dispose();
+      reporterRef.current?.dispose();
       void store.remove(attempt.id);
+      void store.remove(`${attempt.id}:events`);
+      void exitFullscreen();
       setReceipt(r);
       changePhase('done');
     },
@@ -110,6 +127,43 @@ export function ExamSession({ manifest, attempt, local, store, onExit }: Props) 
       queueRef.current = null;
     };
   }, [attempt, clock, finish, local, store]);
+
+  // Watches the exam rules and reports every break to the server, which decides the outcome.
+  useEffect(() => {
+    const reporter = new EventReporter({
+      initial: localEvents ?? [],
+      send: (events, keepalive) => request<RulesReply>('POST', `/attempts/${attempt.id}/events`, { events }, { keepalive }),
+      persist: (events) => void store.save(`${attempt.id}:events`, events),
+      onReply: (reply) => {
+        if (reply.action === 'ended' && reply.receipt) finish(reply.receipt);
+        else setNotice(noticeText(reply));
+      },
+      isFatal: (err) => err instanceof ApiError && (err.status === 409 || err.status === 404),
+      onFatal: (err) => {
+        const closed = receiptFrom(err);
+        if (closed) finish(closed);
+      },
+    });
+    reporterRef.current = reporter;
+    reporter.resume();
+    const detach = attachExamRules(
+      window,
+      { fullscreen: rules.fullscreen, blockClipboard: rules.blockClipboard },
+      (type, data) => {
+        if (rulesActiveRef.current) reporter.report(type, data);
+      },
+      {
+        onFullscreenChange: setIsFullscreen,
+        // Send the close attempt now, with a request that can outlive the page.
+        onClosing: () => void reporter.flush({ keepalive: true }),
+      },
+    );
+    return () => {
+      detach();
+      reporter.dispose();
+      reporterRef.current = null;
+    };
+  }, [attempt.id, finish, localEvents, rules.blockClipboard, rules.fullscreen, store]);
 
   const submit = useCallback(
     async (auto: boolean) => {
@@ -178,19 +232,14 @@ export function ExamSession({ manifest, attempt, local, store, onExit }: Props) 
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [attempt.id, clock, finish]);
 
-  useEffect(() => {
-    if (phase === 'done') return;
-    const warn = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [phase]);
-
   function setAnswer(questionId: string, response: AnswerResponse, delayMs: number) {
     setAnswers((a) => ({ ...a, [questionId]: response }));
     queueRef.current?.enqueue(questionId, response, delayMs);
+  }
+
+  async function returnToFullscreen() {
+    const ok = await enterFullscreen();
+    setReturnFailed(!ok);
   }
 
   function goTo(next: number) {
@@ -207,6 +256,7 @@ export function ExamSession({ manifest, attempt, local, store, onExit }: Props) 
   const answeredCount = questions.filter((q) => isAnswered(answers[q.id])).length;
   const warning = timeWarning(remaining);
   const busy = phase === 'submitting';
+  const outOfFullscreen = rules.fullscreen && !isFullscreen;
   const security = manifest.config.security;
   const indicators = [
     security.screenCapture && 'RECORDING',
@@ -216,7 +266,27 @@ export function ExamSession({ manifest, attempt, local, store, onExit }: Props) 
   ].filter(Boolean) as string[];
 
   return (
-    <div className="exam-shell">
+    <div className={`exam-shell ${rules.blockClipboard ? 'exam-locked' : ''}`}>
+      {outOfFullscreen && (
+        <div className="overlay" role="alertdialog" aria-modal="true" aria-labelledby="fs-title">
+          <div className="card overlay-card">
+            <h1 id="fs-title">You left full screen</h1>
+            <p>The exam is hidden until you return to full screen. This has been recorded.</p>
+            {notice && <p className="banner bad">{notice}</p>}
+            <p className="timer-large" aria-label="Time remaining">
+              REMAINING <strong>{formatDuration(remaining)}</strong>
+            </p>
+            {returnFailed && (
+              <p className="error" role="alert">
+                Full screen was blocked. Allow full screen for this site and try again.
+              </p>
+            )}
+            <button className="primary" autoFocus onClick={() => void returnToFullscreen()}>
+              Return to full screen
+            </button>
+          </div>
+        </div>
+      )}
       <header className="exam-bar">
         <span className="brand">EXAMGUARD</span>
         <span>{manifest.name}</span>
@@ -233,6 +303,11 @@ export function ExamSession({ manifest, attempt, local, store, onExit }: Props) 
       {error && (
         <p className="banner bad" role="alert">
           {error}
+        </p>
+      )}
+      {notice && !outOfFullscreen && (
+        <p className="banner bad" role="alert">
+          ⚠ {notice}
         </p>
       )}
 
@@ -317,6 +392,7 @@ export function ExamSession({ manifest, attempt, local, store, onExit }: Props) 
         {indicators.map((i) => (
           <span key={i}>● {i}</span>
         ))}
+        {rules.fullscreen && <span>{isFullscreen ? '✓ FULL SCREEN' : '✕ NOT IN FULL SCREEN'}</span>}
         <span>✓ PACKAGE VERIFIED (v{manifest.version})</span>
       </footer>
     </div>

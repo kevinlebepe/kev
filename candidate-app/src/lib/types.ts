@@ -1,6 +1,17 @@
 export interface Requirements {
   timing: { durationMinutes?: number; autoSubmit: boolean };
-  security: { kiosk: boolean; screenCapture: boolean; camera: boolean; microphone: boolean; eventMonitoring: boolean };
+  security: {
+    kiosk: boolean;
+    screenCapture: boolean;
+    camera: boolean;
+    microphone: boolean;
+    eventMonitoring: boolean;
+    /** Exam rules. Older packages may not carry them, so the app falls back to the defaults. */
+    fullscreen?: boolean;
+    blockClipboard?: boolean;
+    violationPolicy?: ViolationPolicy;
+    maxViolations?: number;
+  };
   offline: { allowed: boolean; maxOfflineMinutes: number };
   device: {
     supportedOs: string[];
@@ -92,4 +103,34 @@ export interface AttemptView {
   answers: SavedAnswer[];
   receipt: Receipt | null;
   resumed?: boolean;
+}
+
+export type ViolationPolicy = 'flag' | 'warn_then_submit' | 'submit_immediately';
+
+export type RuleEventType =
+  | 'left_fullscreen'
+  | 'returned_fullscreen'
+  | 'left_window'
+  | 'returned_window'
+  | 'copy_attempt'
+  | 'cut_attempt'
+  | 'paste_attempt'
+  | 'context_menu'
+  | 'shortcut_blocked'
+  | 'close_attempt';
+
+export interface PendingEvent {
+  id: string;
+  type: RuleEventType;
+  occurredAt: string;
+  data?: Record<string, string | number | boolean>;
+}
+
+/** What the server decided after counting the violations. */
+export interface RulesReply {
+  violations: number;
+  policy: ViolationPolicy;
+  maxViolations: number;
+  action: 'none' | 'recorded' | 'warned' | 'ended';
+  receipt?: Receipt;
 }

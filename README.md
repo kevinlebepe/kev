@@ -4,7 +4,7 @@ Secure online assessment, examination and live invigilation platform. The full p
 
 This repository currently holds:
 
-* **`api/`**: the platform API. It covers roadmap phase MVP 1 (organisations, roles, candidate registration and approval) the server side of MVP 2 (exam entitlements, the pre exam device check and signed exam package delivery) and MVP 3 (exam attempts with a server owned timer, autosave, submission with a signed receipt and automatic marking). It also enforces the rules the specification marks as critical: the invigilator limit of 10, tenant isolation, immutable signed exam versions and an append only audit trail.
+* **`api/`**: the platform API. It covers roadmap phase MVP 1 (organisations, roles, candidate registration and approval) the server side of MVP 2 (exam entitlements, the pre exam device check and signed exam package delivery) and MVP 3 (exam attempts with a server owned timer, autosave, submission with a signed receipt and automatic marking), plus the exam rules layer (full screen, blocked copy and paste, detection of leaving the exam, and a per exam policy that the server enforces). It also enforces the rules the specification marks as critical: the invigilator limit of 10, tenant isolation, immutable signed exam versions and an append only audit trail.
 * **`candidate-app/`**: the web interface layer of the candidate secure application (spec section 9). Candidates sign in, see their exams, run the device check, open a verified exam package, answer with autosave and a countdown, and submit. The desktop shell with kiosk mode is a later step.
 
 See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for what maps to which section of the specification and what comes next.
@@ -16,6 +16,10 @@ See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for what maps to which sect
 | Answering with navigation | Connection lost | Submit | Receipt |
 |---|---|---|---|
 | ![Exam](docs/screenshots/attempt-exam.png) | ![Offline](docs/screenshots/attempt-offline.png) | ![Confirm](docs/screenshots/attempt-confirm.png) | ![Receipt](docs/screenshots/attempt-receipt.png) |
+
+| The rules | Left full screen | Exam ended for the rules |
+|---|---|---|
+| ![Rules](docs/screenshots/rules-before-start.png) | ![Left full screen](docs/screenshots/rules-left-fullscreen.png) | ![Ended](docs/screenshots/rules-exam-ended.png) |
 
 ## Try it yourself
 
@@ -45,7 +49,11 @@ npm install
 npm run dev
 ```
 
-The demo command prints a candidate sign in. Open http://localhost:5173, sign in with it, run the device check (allow camera and microphone when asked), then open the exam and answer the questions. Things worth trying: reload the page halfway (you return to the same place with your answers), turn off Wi-Fi and answer a question (it says "Not saved yet" and sends when you reconnect), and submit to see your receipt. You can run the demo command again at any time for a fresh exam. On Windows, set the two variables with `set SUPER_ADMIN_EMAIL=...` on separate lines before each command, or use Git Bash.
+The demo command prints a candidate sign in. Open http://localhost:5173, sign in with it, run the device check (allow camera and microphone when asked), then open the exam and answer the questions. Things worth trying: reload the page halfway (you return to the same place with your answers), turn off Wi-Fi and answer a question (it says "Not saved yet" and sends when you reconnect), and submit to see your receipt. You can run the demo command again at any time for a fresh exam.
+
+The demo exam has rules: it runs in full screen, copy and paste are blocked, and leaving the exam (pressing Esc to leave full screen, switching to another tab or program, or reloading or closing the page) is warned about three times. The fourth time the exam is submitted and ended. To try it, press Esc, switch tabs and come back, and watch the warnings count down. Each exam sets its own policy: record only, warn then submit, or submit at once.
+
+**A browser cannot enforce these rules, only detect and report them.** The final product needs the desktop application for real lockdown; see `docs/IMPLEMENTATION.md`. On Windows, set the two variables with `set SUPER_ADMIN_EMAIL=...` on separate lines before each command, or use Git Bash.
 
 ## Stack
 
@@ -137,11 +145,13 @@ api/
     readiness.ts     device check evaluation (spec section 10)
     attempts.ts      closing an attempt: receipt, marking, expiry sweep
     marking.ts       automatic marking of choice questions
+    rules.ts         exam rule events and the violation policy
     signing.ts       exam manifest canonicalisation and signing
   test/              unit and integration tests
 candidate-app/
   src/device/        device bridge: browser implementation now, native desktop later
-  src/lib/           API client, package verification, server clock, save queue, encrypted local store
-  src/screens/       sign in, my exams, device check, exam session, receipt
+  src/lib/           API client, package verification, server clock, save queue, encrypted local store,
+                     exam rules detection, event reporter, full screen
+  src/screens/       sign in, my exams, device check, rules, exam session, receipt
 docs/                specification, implementation notes and screenshots
 ```

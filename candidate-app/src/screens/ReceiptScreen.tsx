@@ -6,6 +6,7 @@ const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeS
 export function ReceiptScreen({ examName, receipt, onExit }: { examName: string; receipt: Receipt; onExit: () => void }) {
   const [copied, setCopied] = useState(false);
   const timedOut = receipt.submittedBy === 'timer';
+  const endedForRules = receipt.submittedBy === 'system';
 
   async function copy() {
     try {
@@ -21,10 +22,12 @@ export function ReceiptScreen({ examName, receipt, onExit }: { examName: string;
       <section className="card receipt" aria-labelledby="receipt-title">
         <p className="brand">EXAMGUARD</p>
         <h1 id="receipt-title">Your exam has been submitted</h1>
-        <p className={`banner ${timedOut ? 'warn' : 'ok'}`} role="status">
-          {timedOut
-            ? '⚠ Time ran out, so your saved answers were submitted automatically.'
-            : '✓ Your answers were received. You can close this window.'}
+        <p className={`banner ${endedForRules ? 'bad' : timedOut ? 'warn' : 'ok'}`} role="status">
+          {endedForRules
+            ? '⛔ Your exam was ended because the exam rules were not followed. Your saved answers were submitted, and your organisation will review this.'
+            : timedOut
+              ? '⚠ Time ran out, so your saved answers were submitted automatically.'
+              : '✓ Your answers were received. You can close this window.'}
         </p>
 
         <dl className="receipt-details">

@@ -1,21 +1,26 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { request } from '../lib/api';
+import { rulesFrom } from '../lib/examRules';
+import { enterFullscreen, exitFullscreen } from '../lib/fullscreen';
 import { idbKV, SecureStore } from '../lib/secureStore';
-import type { AttemptView, Entitlement, ExamPackage } from '../lib/types';
+import type { AttemptView, Entitlement, ExamPackage, PendingEvent } from '../lib/types';
 import { verifyPackage } from '../lib/verify';
 import { ExamSession, type LocalState } from './ExamSession';
 import { ReceiptScreen } from './ReceiptScreen';
+import { RulesScreen } from './RulesScreen';
 
 type State =
   | { phase: 'loading' }
   | { phase: 'error'; message: string }
-  | { phase: 'ready'; pkg: ExamPackage; attempt: AttemptView; local: LocalState | null };
+  | { phase: 'rules'; pkg: ExamPackage }
+  | { phase: 'ready'; pkg: ExamPackage; attempt: AttemptView; local: LocalState | null; localEvents: PendingEvent[] | null };
 
 // One store per browser profile; the key inside it is created on first use.
 const store = new SecureStore(idbKV());
 
-// Downloads and verifies the signed package, starts (or resumes) the attempt,
-// and only then shows any exam content (spec sections 6 and 9).
+// Downloads and verifies the signed package, shows the rules, and only when
+// the candidate presses start does it enter full screen and start (or resume)
+// the attempt (spec sections 6, 9 and 19).
 export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; onExit: () => void }) {
   const [state, setState] = useState<State>({ phase: 'loading' });
 
@@ -28,16 +33,13 @@ export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; on
           request<{ publicKeyPem: string }>('GET', '/exam-signing-key'),
         ]);
         const verification = await verifyPackage(key.publicKeyPem, pkg);
+        if (cancelled) return;
         if (!verification.ok) {
           // Never show content from a package that fails integrity checks.
-          if (!cancelled) {
-            setState({ phase: 'error', message: 'The downloaded exam failed its integrity check. Do not continue; contact exam support.' });
-          }
+          setState({ phase: 'error', message: 'The downloaded exam failed its integrity check. Do not continue; contact exam support.' });
           return;
         }
-        const attempt = await request<AttemptView>('POST', '/attempts/start', { assignmentId: entitlement.id });
-        const local = attempt.status === 'active' ? await store.load<LocalState>(attempt.id) : null;
-        if (!cancelled) setState({ phase: 'ready', pkg, attempt, local });
+        setState({ phase: 'rules', pkg });
       } catch (err) {
         if (!cancelled) setState({ phase: 'error', message: (err as Error).message });
       }
@@ -46,6 +48,33 @@ export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; on
       cancelled = true;
     };
   }, [entitlement.id]);
+
+  const leave = useCallback(() => {
+    void exitFullscreen();
+    onExit();
+  }, [onExit]);
+
+  const begin = useCallback(
+    async (pkg: ExamPackage): Promise<string | null> => {
+      // This runs from the click, which is what lets the browser allow full screen.
+      const rules = rulesFrom(pkg.exam.manifest);
+      if (rules.fullscreen && !(await enterFullscreen())) {
+        return 'Full screen is required for this exam and was blocked. Allow full screen for this site and try again.';
+      }
+      try {
+        const attempt = await request<AttemptView>('POST', '/attempts/start', { assignmentId: entitlement.id });
+        const active = attempt.status === 'active';
+        const local = active ? await store.load<LocalState>(attempt.id) : null;
+        const localEvents = active ? await store.load<PendingEvent[]>(`${attempt.id}:events`) : null;
+        setState({ phase: 'ready', pkg, attempt, local, localEvents });
+        return null;
+      } catch (err) {
+        await exitFullscreen();
+        return (err as Error).message;
+      }
+    },
+    [entitlement.id],
+  );
 
   if (state.phase === 'loading') {
     return (
@@ -65,10 +94,30 @@ export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; on
       </section>
     );
   }
+  if (state.phase === 'rules') {
+    return (
+      <RulesScreen
+        manifest={state.pkg.exam.manifest}
+        resuming={entitlement.status === 'active'}
+        onStart={() => begin(state.pkg)}
+        onBack={onExit}
+      />
+    );
+  }
 
   const { manifest } = state.pkg.exam;
   if (state.attempt.status !== 'active' && state.attempt.receipt) {
-    return <ReceiptScreen examName={manifest.name} receipt={state.attempt.receipt} onExit={onExit} />;
+    return <ReceiptScreen examName={manifest.name} receipt={state.attempt.receipt} onExit={leave} />;
   }
-  return <ExamSession key={state.attempt.id} manifest={manifest} attempt={state.attempt} local={state.local} store={store} onExit={onExit} />;
+  return (
+    <ExamSession
+      key={state.attempt.id}
+      manifest={manifest}
+      attempt={state.attempt}
+      local={state.local}
+      localEvents={state.localEvents}
+      store={store}
+      onExit={leave}
+    />
+  );
 }
