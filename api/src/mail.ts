@@ -67,6 +67,18 @@ export function render(row: Row, config: Config): Omit<MailMessage, 'to'> | null
         subject: 'Confirm your email address for ExamGuard',
         text: `Hello\n\nConfirm your email address to finish registering with ${org}:\n${link}\n\nThe link can be used once.${footer}`,
       };
+    case 'staff_invitation':
+      if (!link) return null;
+      return {
+        subject: `${org} has added you to ExamGuard`,
+        text: `Hello\n\n${org} has added you to ExamGuard as ${String(row.payload.role ?? 'staff').replaceAll('_', ' ')}.\n\nChoose your password here:\n${link}\n\nThe link can be used once and expires in ${config.invitationTtlHours / 24} days. After that, sign in at ${config.portalBaseUrl}.${footer}`,
+      };
+    case 'password_reset':
+      if (!link) return null;
+      return {
+        subject: 'Choose a new ExamGuard password',
+        text: `Hello\n\nSomeone asked to reset the password for this email address. If it was you, choose a new password here:\n${link}\n\nThe link can be used once and expires in 1 hour. If it was not you, ignore this email: your password stays the same.\n\nThis message was sent by ExamGuard.`,
+      };
     case 'exam_assigned':
       return {
         subject: `New exam: ${row.session_name ?? 'exam session'}`,

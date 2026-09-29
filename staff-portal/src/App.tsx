@@ -13,6 +13,8 @@ import { MarkingSessions, Results, Marking } from './pages/Results';
 import { Staff } from './pages/Staff';
 import { Audit } from './pages/Audit';
 import { Integrations } from './pages/Integrations';
+import { Account, TwoFactorRequired } from './pages/Account';
+import { AcceptStaffInvitation, ResetPassword } from './pages/Public';
 
 interface NavItem {
   path: string;
@@ -40,6 +42,11 @@ export function App() {
   const load = useCallback(async () => {
     try {
       const data = await request<Me>('GET', '/me');
+      if (data.organisationId && data.mfaSetupRequired) {
+        setNotice(null);
+        setMe(data);
+        return;
+      }
       if (!data.organisationId || data.permissions.length === 0) {
         await signOut();
         setNotice('This account has no staff access. Candidates sign in to the ExamGuard exam app instead.');
@@ -57,8 +64,25 @@ export function App() {
     resumeSession().then((ok) => (ok ? load() : setMe(null)));
   }, [load]);
 
+  // Links from emails open before, and without, signing in.
+  if (route[0] === 'invitation' && route[1]) return <AcceptStaffInvitation token={route[1]} />;
+  if (route[0] === 'reset' && route[1]) return <ResetPassword token={route[1]} />;
+
   if (me === undefined) return <main className="centered">Starting…</main>;
   if (me === null) return <Login onSignedIn={load} notice={notice} />;
+  if (me.mfaSetupRequired) {
+    return (
+      <MeContext.Provider value={me}>
+        <TwoFactorRequired
+          onChanged={load}
+          onSignOut={async () => {
+            await signOut();
+            setMe(null);
+          }}
+        />
+      </MeContext.Provider>
+    );
+  }
 
   const nav = NAV.filter((n) => can(me, n.permission));
   const [section, id, sub] = route;
@@ -89,6 +113,9 @@ export function App() {
           <div className="who">
             <span>{me.user.display_name}</span>
             <span className="muted small">{me.user.email}</span>
+            <a href={href('account')} className="small">
+              Your account{me.mfaEnabled ? '' : ' (turn on two factor sign in)'}
+            </a>
             <button
               className="link"
               onClick={async () => {
@@ -100,7 +127,7 @@ export function App() {
             </button>
           </div>
         </aside>
-        <main className="content">{render(section, id, sub)}</main>
+        <main className="content">{section === 'account' ? <Account onChanged={load} /> : render(section, id, sub)}</main>
       </div>
     </MeContext.Provider>
   );

@@ -94,6 +94,45 @@ export function AcceptInvitation({ token, onDone }: { token: string; onDone: () 
   );
 }
 
+/** From the password reset email. */
+export function ResetPassword({ token, onDone }: { token: string; onDone: () => void }) {
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [done, setDone] = useState(false);
+  const { busy, error, submit } = useSubmit(async () => {
+    if (password !== confirm) throw new Error('The two passwords do not match.');
+    await request('POST', '/public/password-reset/complete', { token, password });
+    setDone(true);
+  });
+  if (done) {
+    return (
+      <Frame title="Password changed">
+        <p className="banner ok" role="status">
+          ✓ Your password has been changed, and you have been signed out everywhere else.
+        </p>
+        <button className="primary" onClick={onDone}>
+          Go to sign in
+        </button>
+      </Frame>
+    );
+  }
+  return (
+    <Frame title="Choose a new password">
+      <form onSubmit={submit}>
+        <PasswordFields password={password} setPassword={setPassword} confirm={confirm} setConfirm={setConfirm} />
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <button className="primary" type="submit" disabled={busy}>
+          {busy ? 'Saving…' : 'Save new password'}
+        </button>
+      </form>
+    </Frame>
+  );
+}
+
 /** From the confirmation email after registering with an approved email domain. */
 export function VerifyEmail({ token, onDone }: { token: string; onDone: () => void }) {
   const [state, setState] = useState<'working' | 'done' | string>('working');

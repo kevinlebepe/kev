@@ -33,6 +33,10 @@ export interface AuthContext {
   permissions: ReadonlySet<PermissionKey>;
   /** Set when the user is a candidate of the scoped organisation. */
   candidateId: string | null;
+  /** The organisation requires two factor sign in for staff, and this staff member has not turned it on. */
+  mfaSetupRequired: boolean;
+  /** The organisation requires two factor sign in, and this user is its staff. */
+  mfaRequiredByOrganisation: boolean;
 }
 
 declare module 'fastify' {
@@ -52,8 +56,8 @@ export async function resolveAuth(db: Db, config: Config, req: FastifyRequest): 
   const claims = await verifyAccessToken(config, header.slice(7));
   if (!claims) return null;
 
-  const { rows: users } = await db.query<{ platform_role: string | null }>(
-    'SELECT platform_role FROM users WHERE id = $1',
+  const { rows: users } = await db.query<{ platform_role: string | null; mfa_enabled: boolean }>(
+    'SELECT platform_role, mfa_enabled FROM users WHERE id = $1',
     [claims.sub],
   );
   const user = users[0];
@@ -61,6 +65,8 @@ export async function resolveAuth(db: Db, config: Config, req: FastifyRequest): 
 
   let permissions = new Set<PermissionKey>();
   let candidateId: string | null = null;
+  let mfaSetupRequired = false;
+  let mfaRequiredByOrganisation = false;
   if (claims.org) {
     const { rows } = await db.query<{ permission_key: PermissionKey | null }>(
       `SELECT rp.permission_key
@@ -80,6 +86,16 @@ export async function resolveAuth(db: Db, config: Config, req: FastifyRequest): 
 
     // Neither an active member nor an admissible candidate: the organisation scope is no longer valid.
     if (rows.length === 0 && !candidateId) return null;
+
+    if (permissions.size) {
+      const { rows: org } = await db.query<{ require_staff_mfa: boolean }>('SELECT require_staff_mfa FROM organisations WHERE id = $1', [claims.org]);
+      mfaRequiredByOrganisation = Boolean(org[0]?.require_staff_mfa);
+      if (mfaRequiredByOrganisation && !user.mfa_enabled) {
+        // No staff access until two factor sign in is on. Candidate access is unaffected.
+        mfaSetupRequired = true;
+        permissions = new Set();
+      }
+    }
   }
 
   return {
@@ -88,6 +104,8 @@ export async function resolveAuth(db: Db, config: Config, req: FastifyRequest): 
     organisationId: claims.org,
     permissions,
     candidateId,
+    mfaSetupRequired,
+    mfaRequiredByOrganisation,
   };
 }
 

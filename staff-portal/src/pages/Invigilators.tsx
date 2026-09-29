@@ -103,7 +103,10 @@ function AddInvigilator({ onDone, onCancel }: { onDone: () => void; onCancel: ()
         <Field label="Email">
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </Field>
-        <Field label="Starting password" hint="At least 12 characters. Share it privately. Leave empty if they already have an ExamGuard account.">
+        <Field
+          label="Starting password (optional)"
+          hint="Leave empty to email them a link to choose their own, which is safer. Otherwise at least 12 characters, shared privately."
+        >
           <input type="password" value={password} minLength={12} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
         </Field>
         <Field label="Most candidates at once" hint="Never more than 10.">

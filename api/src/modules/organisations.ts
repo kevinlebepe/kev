@@ -6,6 +6,7 @@ import { conflict, forbidden, notFound } from '../errors.js';
 import { authorize, requireOrg, requireSuperAdmin } from '../auth/context.js';
 import { audit, auditFrom } from '../audit.js';
 import { findOrCreateUser, roleIdByKey } from '../users.js';
+import { inviteStaff } from '../userTokens.js';
 import { idParams, page, pagination, parse, password } from '../validation.js';
 
 const domain = z
@@ -24,6 +25,10 @@ const createOrganisationBody = z.object({
 const updateOrganisationBody = z.object({
   name: z.string().min(1).max(200).optional(),
   approvedEmailDomains: z.array(domain).max(50).optional(),
+  /** Staff must use two factor sign in; until they turn it on they have no staff access. */
+  requireStaffMfa: z.boolean().optional(),
+  /** Days to keep recordings after submission; null keeps them until deleted by hand. */
+  recordingRetentionDays: z.number().int().min(1).max(3650).nullable().optional(),
 });
 
 const staffRole = z.enum(['owner', 'admin', 'exam_manager', 'invigilator', 'reviewer', 'support']);
@@ -63,6 +68,7 @@ export async function organisationRoutes(app: FastifyInstance, deps: AppDeps) {
         owner.id,
         await roleIdByKey(tx, organisationId, 'owner'),
       ]);
+      if (owner.needsInvitation) await inviteStaff(tx, deps.config, { userId: owner.id, email: body.owner.email, organisationId, role: 'owner' });
       await audit(tx, {
         ...auditFrom(req),
         organisationId,
@@ -82,7 +88,8 @@ export async function organisationRoutes(app: FastifyInstance, deps: AppDeps) {
     ownOrganisation(auth.organisationId, id);
     if (auth.permissions.size === 0) throw forbidden();
     const { rows } = await db.query(
-      `SELECT id, slug, name, mode, approved_email_domains AS "approvedEmailDomains", created_at AS "createdAt"
+      `SELECT id, slug, name, mode, approved_email_domains AS "approvedEmailDomains", require_staff_mfa AS "requireStaffMfa",
+              recording_retention_days AS "recordingRetentionDays", created_at AS "createdAt"
          FROM organisations WHERE id = $1`,
       [id],
     );
@@ -98,10 +105,20 @@ export async function organisationRoutes(app: FastifyInstance, deps: AppDeps) {
       const { rows } = await tx.query(
         `UPDATE organisations
             SET name = coalesce($2, name),
-                approved_email_domains = coalesce($3, approved_email_domains)
+                approved_email_domains = coalesce($3, approved_email_domains),
+                require_staff_mfa = coalesce($4, require_staff_mfa),
+                recording_retention_days = CASE WHEN $5::boolean THEN $6::int ELSE recording_retention_days END
           WHERE id = $1
-          RETURNING id, slug, name, mode, approved_email_domains AS "approvedEmailDomains"`,
-        [id, body.name ?? null, body.approvedEmailDomains ?? null],
+          RETURNING id, slug, name, mode, approved_email_domains AS "approvedEmailDomains", require_staff_mfa AS "requireStaffMfa",
+                    recording_retention_days AS "recordingRetentionDays"`,
+        [
+          id,
+          body.name ?? null,
+          body.approvedEmailDomains ?? null,
+          body.requireStaffMfa ?? null,
+          body.recordingRetentionDays !== undefined,
+          body.recordingRetentionDays ?? null,
+        ],
       );
       await audit(tx, { ...auditFrom(req), action: 'organisation.update', targetType: 'organisation', targetId: id, data: body });
       return rows[0];
@@ -135,6 +152,7 @@ export async function organisationRoutes(app: FastifyInstance, deps: AppDeps) {
 
     const result = await withTransaction(db, async (tx) => {
       const user = await findOrCreateUser(tx, body);
+      if (user.needsInvitation) await inviteStaff(tx, deps.config, { userId: user.id, email: body.email, organisationId: id, role: body.role });
       await tx
         .query('INSERT INTO organisation_users (organisation_id, user_id, role_id) VALUES ($1, $2, $3)', [
           id,
@@ -152,7 +170,7 @@ export async function organisationRoutes(app: FastifyInstance, deps: AppDeps) {
         targetId: user.id,
         data: { role: body.role },
       });
-      return { userId: user.id, role: body.role };
+      return { userId: user.id, role: body.role, invited: user.needsInvitation };
     });
     return reply.code(201).send(result);
   });

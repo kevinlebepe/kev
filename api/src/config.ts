@@ -94,6 +94,8 @@ export interface Config {
   /** Per-IP requests per minute on login/refresh and public onboarding endpoints. */
   authRateLimitPerMinute: number;
   publicBaseUrl: string;
+  /** Address of the staff portal, used in staff invitation and password reset emails. */
+  portalBaseUrl: string;
   /** How long before a session starts a candidate may download the exam package. */
   packagePrefetchMinutes: number;
   /** Extra time after the deadline in which a final save or submit is still accepted (network delay). */
@@ -107,7 +109,33 @@ export interface Config {
   allowPrivateWebhooks: boolean;
   /** Folder for recordings when no other store is configured. */
   recordingDir: string;
+  /** S3 compatible storage for recordings, when S3_BUCKET is set. */
+  s3: {
+    endpoint: string;
+    region: string;
+    bucket: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    pathStyle: boolean;
+    serverSideEncryption?: string | undefined;
+  } | null;
   mailFrom: string;
+}
+
+function loadS3(): Config['s3'] {
+  const bucket = process.env.S3_BUCKET;
+  if (!bucket) return null;
+  const region = process.env.S3_REGION ?? 'us-east-1';
+  return {
+    bucket,
+    region,
+    endpoint: process.env.S3_ENDPOINT ?? `https://s3.${region}.amazonaws.com`,
+    accessKeyId: required('S3_ACCESS_KEY_ID'),
+    secretAccessKey: required('S3_SECRET_ACCESS_KEY'),
+    // Path style suits MinIO and most S3 compatible services; Amazon accepts both.
+    pathStyle: process.env.S3_PATH_STYLE !== '0',
+    serverSideEncryption: process.env.S3_SERVER_SIDE_ENCRYPTION || undefined,
+  };
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
@@ -121,11 +149,13 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     invitationTtlHours: Number(process.env.INVITATION_TTL_HOURS ?? 24 * 7),
     authRateLimitPerMinute: Number(process.env.AUTH_RATE_LIMIT_PER_MINUTE ?? 20),
     publicBaseUrl: process.env.PUBLIC_BASE_URL ?? 'http://localhost:5173',
+    portalBaseUrl: process.env.PORTAL_BASE_URL ?? 'http://localhost:5174',
     packagePrefetchMinutes: Number(process.env.PACKAGE_PREFETCH_MINUTES ?? 10),
     attemptGraceSeconds: Number(process.env.ATTEMPT_GRACE_SECONDS ?? 30),
     examSigning: loadSigningKey(),
     smtpUrl: process.env.SMTP_URL || null,
     recordingDir: process.env.RECORDING_DIR ?? 'recordings',
+    s3: loadS3(),
     iceServers: parseIceServers(process.env.ICE_SERVERS),
     allowPrivateWebhooks: !isProduction && process.env.ALLOW_PRIVATE_WEBHOOKS !== '0',
     mailFrom: process.env.MAIL_FROM ?? 'ExamGuard <no-reply@examguard.local>',

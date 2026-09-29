@@ -7,6 +7,7 @@ import { authorize, requireOrg } from '../auth/context.js';
 import { audit, auditFrom } from '../audit.js';
 import { notify } from '../notifications.js';
 import { findOrCreateUser, roleIdByKey } from '../users.js';
+import { inviteStaff } from '../userTokens.js';
 import { allocate, liveStatus, PLATFORM_MAX_CANDIDATES_PER_INVIGILATOR } from '../allocation.js';
 import { idParams, page, pagination, parse, password } from '../validation.js';
 
@@ -57,6 +58,9 @@ export async function invigilationRoutes(app: FastifyInstance, deps: AppDeps) {
     const body = parse(createInvigilatorBody, req.body);
     const result = await withTransaction(db, async (tx) => {
       const user = await findOrCreateUser(tx, body);
+      if (user.needsInvitation) {
+        await inviteStaff(tx, deps.config, { userId: user.id, email: body.email, organisationId: auth.organisationId, role: 'invigilator' });
+      }
       await tx.query(
         `INSERT INTO organisation_users (organisation_id, user_id, role_id) VALUES ($1, $2, $3)
          ON CONFLICT (organisation_id, user_id) DO NOTHING`,
@@ -87,7 +91,7 @@ export async function invigilationRoutes(app: FastifyInstance, deps: AppDeps) {
         });
       const id = rows[0]!.id;
       await audit(tx, { ...auditFrom(req), action: 'invigilator.create', targetType: 'invigilator', targetId: id });
-      return { id, userId: user.id };
+      return { id, userId: user.id, invited: user.needsInvitation };
     });
     return reply.code(201).send(result);
   });

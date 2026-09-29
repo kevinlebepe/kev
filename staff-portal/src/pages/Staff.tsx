@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Badge, ErrorText, Field, Form, Loading, Page } from '../components/ui';
+import { ActionButton, Badge, ErrorText, Field, Form, Loading, Page } from '../components/ui';
 import { request } from '../lib/api';
 import { label } from '../lib/format';
 import { can, useMe } from '../lib/session';
@@ -52,7 +52,63 @@ export function Staff() {
         </div>
       </Loading>
       <p className="muted small">Invigilators are added under Invigilators, so they can be rostered and allocated candidates.</p>
+      {can(me, 'organisation:manage_security') && <Security />}
     </Page>
+  );
+}
+
+/** The organisation's sign in policy. Owners only. */
+function Security() {
+  const me = useMe();
+  const org = useApi<{ requireStaffMfa: boolean; recordingRetentionDays: number | null }>(`/organisations/${me.organisationId}`);
+  if (!org.data) return <ErrorText error={org.error} />;
+  const on = org.data.requireStaffMfa;
+  return (
+    <section className="card">
+      <h2>Sign in security</h2>
+      <p>
+        Two factor sign in for all staff is <strong>{on ? 'required' : 'optional'}</strong>.{' '}
+        {on
+          ? 'Staff who have not turned it on are asked to before they can do anything else.'
+          : 'When required, staff who have not turned it on must do so before they can do anything else.'}
+      </p>
+      {!on && !me.mfaEnabled && <p className="muted small">Turn it on for your own account first, under Your account.</p>}
+      <ActionButton
+        className={on ? '' : 'primary'}
+        disabled={!on && !me.mfaEnabled}
+        confirm={on ? 'Make two factor sign in optional for staff?' : 'Require two factor sign in for every staff member?'}
+        onClick={async () => {
+          await request('PATCH', `/organisations/${me.organisationId}`, { requireStaffMfa: !on });
+          await org.reload();
+        }}
+      >
+        {on ? 'Make it optional' : 'Require it for all staff'}
+      </ActionButton>
+      <p className="muted small">After 5 wrong passwords or codes in a row, an account is locked for 15 minutes. Anyone can reset a forgotten password by email.</p>
+      <Retention current={org.data.recordingRetentionDays} onSaved={org.reload} />
+    </section>
+  );
+}
+
+function Retention({ current, onSaved }: { current: number | null; onSaved: () => void }) {
+  const me = useMe();
+  const [days, setDays] = useState(current === null ? '' : String(current));
+  return (
+    <Form
+      submitText="Save"
+      onSubmit={async () => {
+        await request('PATCH', `/organisations/${me.organisationId}`, { recordingRetentionDays: days.trim() ? Number(days) : null });
+        onSaved();
+      }}
+    >
+      <h3>Keeping recordings</h3>
+      <Field
+        label="Delete recordings this many days after the exam"
+        hint={`Leave empty to keep them until deleted by hand. Currently: ${current === null ? 'kept' : `${current} days`}.`}
+      >
+        <input type="number" min={1} max={3650} value={days} onChange={(e) => setDays(e.target.value)} />
+      </Field>
+    </Form>
   );
 }
 
@@ -94,7 +150,10 @@ function AddStaff({ onDone, onCancel }: { onDone: () => void; onCancel: () => vo
             ))}
           </select>
         </Field>
-        <Field label="Starting password" hint="At least 12 characters. Leave empty if they already have an ExamGuard account.">
+        <Field
+          label="Starting password (optional)"
+          hint="Leave empty to email them a link to choose their own, which is safer. Otherwise at least 12 characters, shared privately."
+        >
           <input type="password" value={password} minLength={12} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
         </Field>
       </div>

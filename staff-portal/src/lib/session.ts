@@ -5,6 +5,10 @@ export interface Me {
   organisationId: string;
   permissions: string[];
   candidateId: string | null;
+  mfaEnabled: boolean;
+  /** The organisation requires two factor sign in for staff and it is not on yet: no staff access until it is. */
+  mfaSetupRequired: boolean;
+  mfaRequiredByOrganisation?: boolean;
 }
 
 export const MeContext = createContext<Me | null>(null);

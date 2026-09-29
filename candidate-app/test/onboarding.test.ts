@@ -9,6 +9,7 @@ describe('onboarding links', () => {
     expect(onboardingRoute(`/verify-email/${token}`)).toEqual({ kind: 'verify-email', token });
     expect(onboardingRoute('/register/wits-uni')).toEqual({ kind: 'register', organisation: 'wits-uni' });
     expect(onboardingRoute('/register')).toEqual({ kind: 'register', organisation: null });
+    expect(onboardingRoute(`/reset-password/${token}`)).toEqual({ kind: 'reset-password', token });
   });
 
   it('ignores anything else', () => {

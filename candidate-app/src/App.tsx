@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { request, resumeSession, signOut } from './lib/api';
 import { examFromSearch } from './lib/launch';
 import { onboardingRoute } from './lib/onboarding';
-import { AcceptInvitation, Register, VerifyEmail } from './screens/Onboarding';
+import { AcceptInvitation, Register, ResetPassword, VerifyEmail } from './screens/Onboarding';
 import type { Entitlement } from './lib/types';
 import { currentBridge } from './device/bridge';
 import { Login } from './screens/Login';
@@ -67,6 +67,7 @@ export function App() {
   if (onboarding?.kind === 'invitation') return <AcceptInvitation token={onboarding.token} onDone={toSignIn} />;
   if (onboarding?.kind === 'verify-email') return <VerifyEmail token={onboarding.token} onDone={toSignIn} />;
   if (onboarding?.kind === 'register') return <Register organisation={onboarding.organisation} onDone={toSignIn} />;
+  if (onboarding?.kind === 'reset-password') return <ResetPassword token={onboarding.token} onDone={toSignIn} />;
 
   if (screen.name === 'starting') return <main className="centered">Starting…</main>;
   if (screen.name === 'login') return <Login onSignedIn={load} onRegister={() => setOnboarding({ kind: 'register', organisation: null })} />;

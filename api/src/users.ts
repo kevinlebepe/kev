@@ -4,21 +4,21 @@ import type { Queryable } from './db.js';
 
 /**
  * Returns the existing user with this email, or creates one. Existing users
- * keep their password; a password is required only when creating.
+ * keep their password. A new user without a password must be invited by
+ * email to choose one (`needsInvitation`).
  */
 export async function findOrCreateUser(
   q: Queryable,
   input: { email: string; displayName: string; password?: string | undefined },
-): Promise<{ id: string; created: boolean }> {
+): Promise<{ id: string; created: boolean; needsInvitation: boolean }> {
   const { rows } = await q.query<{ id: string }>('SELECT id FROM users WHERE lower(email) = lower($1)', [input.email]);
-  if (rows[0]) return { id: rows[0].id, created: false };
-  if (!input.password) throw badRequest('A password is required for a new user');
+  if (rows[0]) return { id: rows[0].id, created: false, needsInvitation: false };
 
   const { rows: created } = await q.query<{ id: string }>(
     'INSERT INTO users (email, display_name, password_hash) VALUES ($1, $2, $3) RETURNING id',
-    [input.email, input.displayName, await hashPassword(input.password)],
+    [input.email, input.displayName, input.password ? await hashPassword(input.password) : null],
   );
-  return { id: created[0]!.id, created: true };
+  return { id: created[0]!.id, created: true, needsInvitation: !input.password };
 }
 
 export async function roleIdByKey(q: Queryable, organisationId: string, key: string): Promise<string> {

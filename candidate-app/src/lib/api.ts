@@ -109,8 +109,19 @@ export async function sendBlob(path: string, blob: Blob, headers: Record<string,
   }
 }
 
-export async function signIn(organisation: string, email: string, password: string): Promise<void> {
+/** Signs in with a password. With two factor sign in on, returns a ticket for the code step instead. */
+export async function signIn(organisation: string, email: string, password: string): Promise<{ mfaToken?: string }> {
   const res = await raw('POST', '/auth/login', { organisation, email, password }, null);
+  const data = await res.json().catch(() => undefined);
+  if (!res.ok) throw new ApiError(res.status, data?.error?.message ?? 'Sign in failed');
+  if (data.mfaRequired) return { mfaToken: data.mfaToken };
+  accessToken = data.accessToken;
+  storeRefresh(data.refreshToken);
+  return {};
+}
+
+export async function completeMfa(mfaToken: string, code: string): Promise<void> {
+  const res = await raw('POST', '/auth/mfa', { mfaToken, code }, null);
   const data = await res.json().catch(() => undefined);
   if (!res.ok) throw new ApiError(res.status, data?.error?.message ?? 'Sign in failed');
   accessToken = data.accessToken;
