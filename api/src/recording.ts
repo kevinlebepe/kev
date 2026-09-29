@@ -16,8 +16,13 @@ export function expectedStreams(rawConfig: unknown): StreamType[] {
   return streams;
 }
 
+/** The recording must start and end within this of the attempt's start and submission, with no longer break. */
+export const COVERAGE_SLACK_SECONDS = 120;
+
 export interface EvidenceState {
   expected: StreamType[];
+  /** Streams whose recording does not cover the attempt from start to submission. */
+  uncovered: StreamType[];
   /** Missing sequence numbers per stream, up to the last one the app declared. */
   missing: Partial<Record<StreamType, number[]>>;
   /** Streams with no recording at all, or no declared end yet. */
@@ -31,16 +36,16 @@ export interface EvidenceState {
  * up to its declared last chunk.
  */
 export async function evidenceState(q: Queryable, attemptId: string): Promise<EvidenceState> {
-  const { rows } = await q.query<{ config: unknown; manifest: Partial<Record<StreamType, number>> | null }>(
-    `SELECT v.manifest->'config' AS config, at.recording_manifest AS manifest
+  const { rows } = await q.query<{ config: unknown; manifest: Partial<Record<StreamType, number>> | null; started_at: Date; submitted_at: Date | null }>(
+    `SELECT v.manifest->'config' AS config, at.recording_manifest AS manifest, at.started_at, at.submitted_at
        FROM attempts at JOIN exam_versions v ON v.id = at.exam_version_id WHERE at.id = $1`,
     [attemptId],
   );
   const expected = expectedStreams(rows[0]!.config);
   const declared = rows[0]!.manifest ?? {};
-  const { rows: chunks } = await q.query<{ stream_type: StreamType; sequence: number }>(
-    `SELECT rs.stream_type, rc.sequence FROM recording_chunks rc JOIN recording_streams rs ON rs.id = rc.stream_id
-      WHERE rs.attempt_id = $1 AND rc.upload_state = 'uploaded'`,
+  const { rows: chunks } = await q.query<{ stream_type: StreamType; sequence: number; start_time: Date; end_time: Date }>(
+    `SELECT rs.stream_type, rc.sequence, rc.start_time, rc.end_time FROM recording_chunks rc JOIN recording_streams rs ON rs.id = rc.stream_id
+      WHERE rs.attempt_id = $1 AND rc.upload_state = 'uploaded' ORDER BY rc.start_time, rc.sequence`,
     [attemptId],
   );
   const have = new Map<StreamType, Set<number>>();
@@ -48,6 +53,9 @@ export async function evidenceState(q: Queryable, attemptId: string): Promise<Ev
 
   const missing: EvidenceState['missing'] = {};
   const incomplete: StreamType[] = [];
+  const uncovered: StreamType[] = [];
+  const slack = COVERAGE_SLACK_SECONDS * 1000;
+  const { started_at: startedAt, submitted_at: submittedAt } = rows[0]!;
   for (const stream of expected) {
     const last = declared[stream];
     const got = have.get(stream) ?? new Set();
@@ -58,8 +66,28 @@ export async function evidenceState(q: Queryable, attemptId: string): Promise<Ev
     const gaps: number[] = [];
     for (let i = 0; i <= last && gaps.length < 100; i++) if (!got.has(i)) gaps.push(i);
     if (gaps.length) missing[stream] = gaps;
+
+    // The pieces must span the attempt: from near its start to near its
+    // submission, with no long break. Times come from the device, so this
+    // catches a recording that failed, not a deliberately altered app; the
+    // footage itself is what reviewers judge.
+    if (submittedAt) {
+      const times = chunks.filter((c) => c.stream_type === stream);
+      let covered = times.length > 0 && times[0]!.start_time.getTime() <= startedAt.getTime() + slack;
+      for (let i = 1; covered && i < times.length; i++) {
+        if (times[i]!.start_time.getTime() - times[i - 1]!.end_time.getTime() > slack) covered = false;
+      }
+      if (covered && times.at(-1)!.end_time.getTime() < submittedAt.getTime() - slack) covered = false;
+      if (!covered) uncovered.push(stream);
+    }
   }
-  return { expected, missing, incomplete, complete: incomplete.length === 0 && Object.keys(missing).length === 0 };
+  return {
+    expected,
+    missing,
+    incomplete,
+    uncovered,
+    complete: incomplete.length === 0 && uncovered.length === 0 && Object.keys(missing).length === 0,
+  };
 }
 
 /** Marks a submission verified once its evidence is complete. Returns the submission status. */

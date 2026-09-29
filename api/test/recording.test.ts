@@ -8,7 +8,14 @@ const h = useHarness();
 
 const RECORDED = { camera: true, microphone: true, screenCapture: true };
 
-async function upload(token: string, attemptId: string, stream: string, sequence: number, body: Buffer, opts: { type?: string; sha?: string } = {}) {
+async function upload(
+  token: string,
+  attemptId: string,
+  stream: string,
+  sequence: number,
+  body: Buffer,
+  opts: { type?: string; sha?: string; start?: Date; end?: Date } = {},
+) {
   const res = await h.app.inject({
     method: 'POST',
     url: `/attempts/${attemptId}/recording/${stream}/${sequence}`,
@@ -16,8 +23,8 @@ async function upload(token: string, attemptId: string, stream: string, sequence
       authorization: `Bearer ${token}`,
       'content-type': opts.type ?? 'video/webm;codecs=vp8,opus',
       'x-chunk-sha256': opts.sha ?? createHash('sha256').update(body).digest('hex'),
-      'x-chunk-start': new Date(Date.now() - 10_000).toISOString(),
-      'x-chunk-end': new Date().toISOString(),
+      'x-chunk-start': (opts.start ?? new Date(Date.now() - 10_000)).toISOString(),
+      'x-chunk-end': (opts.end ?? new Date()).toISOString(),
     },
     payload: body,
   });
@@ -86,6 +93,20 @@ describe('recording upload', () => {
     // The last piece arrives after the exam closed, as it would from a slow connection.
     await upload(c.token, c.attemptId, 'camera', 1, Buffer.from('c1'));
     expect(await submission(c.attemptId)).toBe('verified');
+  });
+
+  it('does not verify a recording that stops long before the exam ends', async () => {
+    const org = await createOrg(h);
+    const c = await started(h, org, { camera: true });
+    // The only piece covers a moment 10 minutes before now, and the exam is submitted now.
+    await h.db.query(`UPDATE attempts SET started_at = now() - interval '20 minutes' WHERE id = $1`, [c.attemptId]);
+    const early = new Date(Date.now() - 20 * 60_000);
+    await upload(c.token, c.attemptId, 'camera', 0, Buffer.from('p0'), { start: early, end: new Date(early.getTime() + 30_000) });
+    await submit(c);
+    const res = await call(h, 'POST', `/attempts/${c.attemptId}/recording/complete`, c.token, { streams: { camera: 0 } });
+    expect(res.body).toMatchObject({ submission: 'evidence_pending', missing: {}, incomplete: [] });
+    const list = await call(h, 'GET', `/attempts/${c.attemptId}/recordings`, org.owner);
+    expect(list.body.evidence.uncovered).toEqual(['camera']);
   });
 
   it('never verifies a stream with nothing in it', async () => {

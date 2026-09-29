@@ -258,7 +258,7 @@ export function Marking({ attemptId }: { attemptId: string }) {
 
 interface RecordingsData {
   submission: string | null;
-  evidence: { expected: string[]; missing: Record<string, number[]>; incomplete: string[]; complete: boolean };
+  evidence: { expected: string[]; missing: Record<string, number[]>; incomplete: string[]; uncovered?: string[]; complete: boolean };
   streams: { type: string; chunks: { id: string; sequence: number; startTime: string; endTime: string; sizeBytes: number; contentType: string }[] }[];
 }
 
@@ -281,6 +281,8 @@ function Recordings({ attemptId }: { attemptId: string }) {
         <span className="muted small">
           Submission {label(d.submission)}.
           {d.evidence.incomplete.length > 0 && ` Not finished: ${d.evidence.incomplete.map((s) => STREAM_TEXT[s] ?? s).join(', ')}.`}
+          {(d.evidence.uncovered ?? []).length > 0 &&
+            ` Does not cover the whole exam: ${(d.evidence.uncovered ?? []).map((s) => STREAM_TEXT[s] ?? s).join(', ')}.`}
           {Object.entries(d.evidence.missing).map(([s, gaps]) => ` ${STREAM_TEXT[s] ?? s} is missing part${gaps.length > 1 ? 's' : ''} ${gaps.join(', ')}.`)}
         </span>
       </p>
