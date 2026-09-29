@@ -116,6 +116,42 @@ describe('invigilator allocation', () => {
     expect(results.filter((r) => r.status === 409)).toHaveLength(5);
   });
 
+  it('counts an allocation from another session that committed while it was waiting for the lock', async () => {
+    const org = await createOrg(h);
+    const { sessionId, candidates } = await sessionWithCandidates(org, 2);
+    const [inv] = await roster(org, sessionId, 1);
+    await h.db.query('UPDATE invigilators SET max_active = 1 WHERE id = $1', [inv!.id]);
+
+    // The same invigilator is rostered on a second session, which is allocating at the same moment.
+    const { rows } = await h.db.query<{ id: string }>(
+      `INSERT INTO sessions (organisation_id, exam_version_id, name, starts_at, ends_at)
+       SELECT organisation_id, exam_version_id, 'Second sitting', starts_at, ends_at FROM sessions WHERE id = $1 RETURNING id`,
+      [sessionId],
+    );
+    const otherSession = rows[0]!.id;
+    await h.db.query('INSERT INTO session_invigilators (session_id, invigilator_id) VALUES ($1, $2)', [otherSession, inv!.id]);
+
+    // That other allocation holds the invigilator locked and takes their only place.
+    const winner = await h.db.connect();
+    await winner.query('BEGIN');
+    await winner.query('SELECT 1 FROM invigilators WHERE id = $1 FOR UPDATE', [inv!.id]);
+    const waiting = call(h, 'POST', '/live/assignments', org.owner, { mode: 'auto', sessionId });
+    await new Promise((r) => setTimeout(r, 300)); // let it reach the lock and block
+    await winner.query(
+      `INSERT INTO invigilation_assignments (organisation_id, session_id, invigilator_id, candidate_id) VALUES ($1, $2, $3, $4)`,
+      [org.id, otherSession, inv!.id, candidates[0]],
+    );
+    await winner.query('COMMIT');
+    winner.release();
+
+    // The waiting allocation must see that place as taken. It queues both
+    // candidates instead of failing on the database limit.
+    const res = await waiting;
+    expect(res.status).toBe(200);
+    expect(res.body.assignments).toHaveLength(0);
+    expect(res.body.unassigned).toHaveLength(2);
+  });
+
   it('released assignments free capacity', async () => {
     const org = await createOrg(h);
     const { sessionId } = await sessionWithCandidates(org, 11);

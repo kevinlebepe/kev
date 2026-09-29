@@ -146,14 +146,25 @@ export async function invigilationRoutes(app: FastifyInstance, deps: AppDeps) {
 
       // Rostered, active invigilators with their current load, locked in id
       // order so concurrent allocations cannot deadlock or double-count.
+      await tx.query(
+        `SELECT i.id
+           FROM invigilators i
+           JOIN session_invigilators si ON si.invigilator_id = i.id AND si.session_id = $1
+          WHERE i.organisation_id = $2 AND i.status = 'active'
+          ORDER BY i.id
+          FOR UPDATE OF i`,
+        [body.sessionId, auth.organisationId],
+      );
+      // Loads are read in a separate statement, after the locks are held. In the
+      // same statement they would come from a snapshot taken before waiting for
+      // the lock, and a concurrent allocation could be counted as not there.
       const { rows: invigilators } = await tx.query<{ id: string; capacity: number; load: number }>(
         `SELECT i.id, i.max_active AS capacity,
                 (SELECT count(*)::int FROM invigilation_assignments ia WHERE ia.invigilator_id = i.id AND ia.active) AS load
            FROM invigilators i
            JOIN session_invigilators si ON si.invigilator_id = i.id AND si.session_id = $1
           WHERE i.organisation_id = $2 AND i.status = 'active'
-          ORDER BY i.id
-          FOR UPDATE OF i`,
+          ORDER BY i.id`,
         [body.sessionId, auth.organisationId],
       );
 

@@ -135,6 +135,7 @@ export async function candidateAppRoutes(app: FastifyInstance, deps: AppDeps) {
     const row = rows[0];
     if (!row || row.status === 'revoked') throw notFound('Entitlement');
     if (row.candidate_status !== 'approved') throw conflict('Candidate is not approved');
+    if (['submitted', 'completed'].includes(row.status)) throw conflict('You have already submitted this exam');
     if (!['precheck_complete', 'active'].includes(row.status)) throw conflict('Complete the device check first');
     if (!['scheduled', 'open'].includes(row.session_status)) throw conflict(`Session is ${row.session_status}`);
     if (row.too_early) throw conflict(`The exam package is available from ${row.not_before.toISOString()}`);

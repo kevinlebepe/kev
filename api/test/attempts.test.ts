@@ -124,6 +124,46 @@ describe('starting an attempt', () => {
     expect(rows[0].status).toBe('active');
   });
 
+  it('creates exactly one attempt when starts arrive at the same moment', async () => {
+    const org = await createOrg(h);
+    const c = await candidateReady(org);
+    // A double click, a second tab, or a retry can all send starts together.
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () => call(h, 'POST', '/attempts/start', c.token, { assignmentId: c.assignmentId })),
+    );
+    expect(results.map((r) => r.status).sort()).toEqual([200, 200, 200, 200, 200, 201]);
+    expect(new Set(results.map((r) => r.body.id)).size).toBe(1);
+    const { rows } = await h.db.query('SELECT count(*)::int AS n FROM attempts WHERE assignment_id = $1', [c.assignmentId]);
+    expect(rows[0].n).toBe(1);
+  });
+
+  it('resumes, rather than refusing, when it had to wait for a start that won the race', async () => {
+    const org = await createOrg(h);
+    const c = await candidateReady(org);
+    // Hold the entitlement locked, as a concurrent start would while it works.
+    const winner = await h.db.connect();
+    await winner.query('BEGIN');
+    await winner.query('SELECT 1 FROM exam_assignments WHERE id = $1 FOR UPDATE', [c.assignmentId]);
+
+    const waiting = call(h, 'POST', '/attempts/start', c.token, { assignmentId: c.assignmentId });
+    await new Promise((r) => setTimeout(r, 300)); // let the request reach the lock and block
+
+    // The winner creates the attempt and commits while the other request is still waiting.
+    await winner.query(
+      `INSERT INTO attempts (organisation_id, assignment_id, exam_version_id, deadline_at)
+       SELECT a.organisation_id, a.id, s.exam_version_id, now() + interval '1 hour'
+         FROM exam_assignments a JOIN sessions s ON s.id = a.session_id WHERE a.id = $1`,
+      [c.assignmentId],
+    );
+    await winner.query(`UPDATE exam_assignments SET status = 'active' WHERE id = $1`, [c.assignmentId]);
+    await winner.query('COMMIT');
+    winner.release();
+
+    const res = await waiting;
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ resumed: true, status: 'active' });
+  });
+
   it('caps the deadline at the end of the session', async () => {
     const org = await createOrg(h);
     const c = await candidateReady(org, { times: { startsAt: minutesFromNow(-1), endsAt: minutesFromNow(20) } });

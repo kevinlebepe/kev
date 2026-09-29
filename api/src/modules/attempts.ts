@@ -167,6 +167,16 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
     const { assignmentId } = parse(startBody, req.body);
 
     const result = await withTransaction(db, async (tx) => {
+      // Take the lock in its own statement. If the state were read in the same
+      // statement, a request that waited on the lock would still see the
+      // snapshot from before the winner committed: it would find the
+      // entitlement already active but no attempt, and wrongly refuse.
+      const { rowCount: owned } = await tx.query(
+        'SELECT 1 FROM exam_assignments WHERE id = $1 AND candidate_id = $2 AND organisation_id = $3 FOR UPDATE',
+        [assignmentId, auth.candidateId, auth.organisationId],
+      );
+      if (!owned) throw notFound('Entitlement');
+
       const { rows } = await tx.query<{
         status: string;
         candidate_status: string;
@@ -191,8 +201,7 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
            JOIN candidates c ON c.id = a.candidate_id
            JOIN sessions s ON s.id = a.session_id
            JOIN exam_versions v ON v.id = s.exam_version_id
-          WHERE a.id = $1 AND a.candidate_id = $2 AND a.organisation_id = $3
-          FOR UPDATE OF a`,
+          WHERE a.id = $1 AND a.candidate_id = $2 AND a.organisation_id = $3`,
         [assignmentId, auth.candidateId, auth.organisationId],
       );
       const row = rows[0];
