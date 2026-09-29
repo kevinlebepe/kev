@@ -179,3 +179,15 @@ label input { margin-top: 0.35rem; font-weight: 400; }
 .app-required p { margin: 0; }
 a.button { display: inline-block; text-decoration: none; text-align: center; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px; padding: 0.55rem 1rem; }
 a.button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+
+/* Messages from the invigilator during the exam */
+.invigilator-message { margin: 0; padding: 0.75rem 1rem; background: var(--warn-bg); color: var(--text); border-bottom: 1px solid var(--border); }
+.invigilator-message.message { background: var(--surface); border-left: 4px solid var(--accent); }
+.invigilator-message.warning { border-left: 4px solid var(--bad); }
+.invigilator-message h2 { font-size: 1rem; margin: 0 0 0.25rem; }
+.invigilator-message p { margin: 0 0 0.5rem; }
+
+/* Released results */
+.results { margin-top: 2rem; }
+.results h3 { margin: 0; font-size: 1.05rem; }
+.results .score { margin: 0; font-size: 1.25rem; white-space: nowrap; }

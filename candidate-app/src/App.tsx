@@ -7,6 +7,7 @@ import { Login } from './screens/Login';
 import { Entitlements } from './screens/Entitlements';
 import { DeviceCheck } from './screens/DeviceCheck';
 import { ExamView } from './screens/ExamView';
+import { type ReleasedResult, Results } from './screens/Results';
 
 type Screen =
   | { name: 'starting' }
@@ -18,14 +19,20 @@ type Screen =
 export function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'starting' });
   const [items, setItems] = useState<Entitlement[]>([]);
+  const [results, setResults] = useState<ReleasedResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   // An exam named in the address, for example when the desktop application was opened from a link.
   const requestedExam = useRef<string | null>(examFromSearch(window.location.search));
 
   const load = useCallback(async () => {
     try {
-      const data = await request<{ items: Entitlement[] }>('GET', '/me/entitlements');
+      const [data, released] = await Promise.all([
+        request<{ items: Entitlement[] }>('GET', '/me/entitlements'),
+        // Results are extra: the exams list still works if they cannot be loaded.
+        request<{ items: ReleasedResult[] }>('GET', '/me/results').catch(() => ({ items: [] })),
+      ]);
       setItems(data.items);
+      setResults(released.items);
       setError(null);
       // Go straight to the exam the link named: its rules if the device is ready, otherwise its device check.
       const wanted = requestedExam.current ? data.items.find((i) => i.id === requestedExam.current) : undefined;
@@ -73,11 +80,14 @@ export function App() {
         {screen.name === 'check' ? (
           <DeviceCheck entitlement={screen.entitlement} bridge={currentBridge()} onDone={load} />
         ) : (
-          <Entitlements
-            items={items}
-            onCheck={(entitlement) => setScreen({ name: 'check', entitlement })}
-            onOpen={(entitlement) => setScreen({ name: 'exam', entitlement })}
-          />
+          <>
+            <Entitlements
+              items={items}
+              onCheck={(entitlement) => setScreen({ name: 'check', entitlement })}
+              onOpen={(entitlement) => setScreen({ name: 'exam', entitlement })}
+            />
+            <Results items={results} />
+          </>
         )}
       </main>
     </div>

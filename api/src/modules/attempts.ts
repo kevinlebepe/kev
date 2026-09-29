@@ -331,8 +331,18 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
         [id, afterSeq],
       );
       const current = now[0]!;
+      let endedBy: 'invigilator' | 'rules' | null = null;
+      if (current.status !== 'active') {
+        const { rows: ended } = await tx.query<{ type: string }>(
+          `SELECT type FROM events WHERE attempt_id = $1 AND type IN ('attempt_ended_by_invigilator', 'attempt_ended_for_rules')
+            ORDER BY occurred_at DESC, seq DESC LIMIT 1`,
+          [id],
+        );
+        if (ended[0]) endedBy = ended[0].type === 'attempt_ended_by_invigilator' ? 'invigilator' : 'rules';
+      }
       return {
         status: current.status,
+        endedBy,
         deadlineAt: current.deadline_at.toISOString(),
         serverTime: current.now.toISOString(),
         messages: messages

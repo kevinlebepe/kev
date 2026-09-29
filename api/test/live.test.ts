@@ -112,6 +112,7 @@ describe('live console', () => {
 
     const beat = await call(h, 'POST', `/attempts/${c.attemptId}/heartbeat`, c.token, {});
     expect(beat.body.status).toBe('submitted');
+    expect(beat.body.endedBy).toBe('invigilator');
     expect(beat.body.receipt.receiptId).toBe(end.body.receipt.receiptId);
 
     expect((await call(h, 'POST', `/live/attempts/${c.attemptId}/end`, c.invToken, { reason: 'again' })).status).toBe(409);

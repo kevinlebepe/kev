@@ -3,6 +3,7 @@ import { ApiError, request } from '../lib/api';
 import { createServerClock, formatDuration, timeWarning } from '../lib/clock';
 import { getDesktop } from '../lib/desktop';
 import { EventReporter } from '../lib/eventReporter';
+import { Heartbeat, type HeartbeatReply, type InvigilatorMessage } from '../lib/heartbeat';
 import { noticeText, rulesFrom } from '../lib/examRules';
 import { enterFullscreen, exitFullscreen } from '../lib/fullscreen';
 import { attachExamRules } from '../lib/rules';
@@ -10,7 +11,7 @@ import { type QueuedAnswer, SaveQueue, type SaveStatus } from '../lib/saveQueue'
 import type { SecureStore } from '../lib/secureStore';
 import type { AnswerResponse, AttemptView, ExamManifest, PendingEvent, Receipt, RulesReply } from '../lib/types';
 import { isAnswered, QuestionInput } from './QuestionInput';
-import { ReceiptScreen } from './ReceiptScreen';
+import { type EndedBy, ReceiptScreen } from './ReceiptScreen';
 
 export interface LocalState {
   pending: QueuedAnswer[];
@@ -48,7 +49,6 @@ function receiptFrom(err: unknown): Receipt | null {
 export function ExamSession({ manifest, attempt, local, localEvents, store, onExit }: Props) {
   const questions = manifest.questions;
   const total = questions.length;
-  const deadline = Date.parse(attempt.deadlineAt);
   const allowBacktrack = manifest.config.navigation.allowBacktrack;
   const rules = rulesFrom(manifest);
   // In the desktop application the whole window is locked, so the browser's
@@ -63,7 +63,11 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
     return merged;
   });
   const [index, setIndex] = useState(Math.min(Math.max(attempt.position, 0), total - 1));
+  // The deadline moves when an invigilator gives extra time.
+  const [deadline, setDeadline] = useState(() => Date.parse(attempt.deadlineAt));
   const [remaining, setRemaining] = useState(() => deadline - clock.now());
+  const [messages, setMessages] = useState<InvigilatorMessage[]>([]);
+  const [endedBy, setEndedBy] = useState<EndedBy>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [phase, setPhase] = useState<Phase>('answering');
   const [receipt, setReceipt] = useState<Receipt | null>(null);
@@ -77,6 +81,7 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
   const submittingRef = useRef(false);
   const positionRef = useRef(index);
   const reporterRef = useRef<EventReporter | null>(null);
+  const heartbeatRef = useRef<Heartbeat | null>(null);
   // Stops watching the rules. Called the moment the exam ends, so the candidate
   // is not stopped from closing the window on the receipt screen.
   const stopWatchingRef = useRef<() => void>(() => {});
@@ -89,11 +94,13 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
   }, []);
 
   const finish = useCallback(
-    (r: Receipt) => {
+    (r: Receipt, by: EndedBy = null) => {
       rulesActiveRef.current = false;
+      setEndedBy(by);
       stopWatchingRef.current();
       queueRef.current?.dispose();
       reporterRef.current?.dispose();
+      heartbeatRef.current?.stop();
       void store.remove(attempt.id);
       void store.remove(`${attempt.id}:events`);
       void desktop?.exitExamMode();
@@ -144,7 +151,7 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
       send: (events, keepalive) => request<RulesReply>('POST', `/attempts/${attempt.id}/events`, { events }, { keepalive }),
       persist: (events) => void store.save(`${attempt.id}:events`, events),
       onReply: (reply) => {
-        if (reply.action === 'ended' && reply.receipt) finish(reply.receipt);
+        if (reply.action === 'ended' && reply.receipt) finish(reply.receipt, 'rules');
         else setNotice(noticeText(reply));
       },
       isFatal: (err) => err instanceof ApiError && (err.status === 409 || err.status === 404),
@@ -197,6 +204,28 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
       reporterRef.current = null;
     };
   }, [attempt.id, desktop, finish, localEvents, manifest.config.device.allowExternalMonitors, rules.blockClipboard, rules.fullscreen, store]);
+
+  // Checks in with the server: messages from the invigilator, extra time, and an exam ended by the invigilator.
+  useEffect(() => {
+    const heartbeat = new Heartbeat({
+      send: (afterSeq) => request<HeartbeatReply>('POST', `/attempts/${attempt.id}/heartbeat`, { afterSeq }),
+      onReply: (reply) => {
+        clock.sync(reply.serverTime);
+        if (reply.status !== 'active' && reply.receipt) {
+          finish(reply.receipt, reply.endedBy ?? null);
+          return;
+        }
+        setDeadline(Date.parse(reply.deadlineAt));
+        if (reply.messages.length) setMessages((m) => [...m, ...reply.messages]);
+      },
+    });
+    heartbeat.start();
+    heartbeatRef.current = heartbeat;
+    return () => {
+      heartbeat.stop();
+      heartbeatRef.current = null;
+    };
+  }, [attempt.id, clock, finish]);
 
   const submit = useCallback(
     async (auto: boolean) => {
@@ -253,6 +282,7 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
     const onVisible = async () => {
       if (document.visibilityState !== 'visible' || phaseRef.current === 'done') return;
       void queueRef.current?.flush();
+      void heartbeatRef.current?.beat();
       try {
         const view = await request<AttemptView>('GET', `/attempts/${attempt.id}`);
         clock.sync(view.serverTime);
@@ -287,7 +317,7 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
     queueRef.current?.setPosition(next);
   }
 
-  if (phase === 'done' && receipt) return <ReceiptScreen examName={manifest.name} receipt={receipt} onExit={onExit} />;
+  if (phase === 'done' && receipt) return <ReceiptScreen examName={manifest.name} receipt={receipt} endedBy={endedBy} onExit={onExit} />;
 
   const question = questions[index]!;
   const answeredCount = questions.filter((q) => isAnswered(answers[q.id])).length;
@@ -341,6 +371,14 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
         <p className="banner bad" role="alert">
           {error}
         </p>
+      )}
+      {messages.length > 0 && (
+        <section className={`invigilator-message ${messages.at(-1)!.kind}`} role="alert" aria-labelledby="inv-title">
+          <h2 id="inv-title">{messages.at(-1)!.kind === 'warning' ? '⚠ Warning from your invigilator' : 'Message from your invigilator'}</h2>
+          <p>{messages.at(-1)!.body}</p>
+          {messages.length > 1 && <p className="muted small">{messages.length - 1} earlier message{messages.length > 2 ? 's' : ''} from your invigilator.</p>}
+          <button onClick={() => setMessages([])}>OK</button>
+        </section>
       )}
       {notice && !outOfFullscreen && (
         <p className="banner bad" role="alert">

@@ -3,10 +3,29 @@ import type { Receipt } from '../lib/types';
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'medium' });
 
-export function ReceiptScreen({ examName, receipt, onExit }: { examName: string; receipt: Receipt; onExit: () => void }) {
+/** Why the exam ended early, when the app knows. */
+export type EndedBy = 'rules' | 'invigilator' | null;
+
+const ENDED_TEXT: Record<'rules' | 'invigilator' | 'unknown', string> = {
+  rules: '⛔ Your exam was ended because the exam rules were not followed. Your saved answers were submitted, and your organisation will review this.',
+  invigilator: '⛔ Your invigilator ended your exam. Your saved answers were submitted. Contact your organisation if you think this was a mistake.',
+  unknown: '⛔ Your exam was ended early. Your saved answers were submitted, and your organisation will review this.',
+};
+
+export function ReceiptScreen({
+  examName,
+  receipt,
+  endedBy = null,
+  onExit,
+}: {
+  examName: string;
+  receipt: Receipt;
+  endedBy?: EndedBy;
+  onExit: () => void;
+}) {
   const [copied, setCopied] = useState(false);
   const timedOut = receipt.submittedBy === 'timer';
-  const endedForRules = receipt.submittedBy === 'system';
+  const endedEarly = receipt.submittedBy === 'system';
 
   async function copy() {
     try {
@@ -22,9 +41,9 @@ export function ReceiptScreen({ examName, receipt, onExit }: { examName: string;
       <section className="card receipt" aria-labelledby="receipt-title">
         <p className="brand">EXAMGUARD</p>
         <h1 id="receipt-title">Your exam has been submitted</h1>
-        <p className={`banner ${endedForRules ? 'bad' : timedOut ? 'warn' : 'ok'}`} role="status">
-          {endedForRules
-            ? '⛔ Your exam was ended because the exam rules were not followed. Your saved answers were submitted, and your organisation will review this.'
+        <p className={`banner ${endedEarly ? 'bad' : timedOut ? 'warn' : 'ok'}`} role="status">
+          {endedEarly
+            ? ENDED_TEXT[endedBy ?? 'unknown']
             : timedOut
               ? '⚠ Time ran out, so your saved answers were submitted automatically.'
               : '✓ Your answers were received. You can close this window.'}
@@ -46,7 +65,7 @@ export function ReceiptScreen({ examName, receipt, onExit }: { examName: string;
         </dl>
 
         <p className="muted small">
-          Keep the receipt number. Your organisation will tell you when results are released. Results are not shown here.
+          Keep the receipt number. When your organisation releases the results, they appear under My results.
         </p>
 
         <div className="row">
