@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getDesktop } from '../lib/desktop';
 import { fullscreenSupported } from '../lib/fullscreen';
 import { consequenceText, rulesFrom } from '../lib/examRules';
 import type { ExamManifest } from '../lib/types';
@@ -26,7 +27,8 @@ export function RulesScreen({
   const security = manifest.config.security;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const cannotFullscreen = rules.fullscreen && !fullscreenSupported();
+  // The desktop application locks the whole window itself, so it needs no browser support.
+  const cannotFullscreen = rules.fullscreen && !getDesktop() && !fullscreenSupported();
   const duration = manifest.config.timing.durationMinutes;
 
   const monitored = [security.camera && 'your camera', security.microphone && 'your microphone', security.screenCapture && 'your screen'].filter(

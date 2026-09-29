@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { request, resumeSession, signOut } from './lib/api';
 import type { Entitlement } from './lib/types';
-import { browserBridge } from './device/bridge';
+import { currentBridge } from './device/bridge';
 import { Login } from './screens/Login';
 import { Entitlements } from './screens/Entitlements';
 import { DeviceCheck } from './screens/DeviceCheck';
@@ -60,7 +60,7 @@ export function App() {
           </p>
         )}
         {screen.name === 'check' ? (
-          <DeviceCheck entitlement={screen.entitlement} bridge={browserBridge} onDone={load} />
+          <DeviceCheck entitlement={screen.entitlement} bridge={currentBridge()} onDone={load} />
         ) : (
           <Entitlements
             items={items}

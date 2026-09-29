@@ -19,6 +19,7 @@ export interface Requirements {
     minFreeStorageMb: number;
     allowExternalMonitors: boolean;
     allowVirtualMachines: boolean;
+    requireDesktopApp?: boolean;
   };
 }
 
@@ -117,7 +118,8 @@ export type RuleEventType =
   | 'paste_attempt'
   | 'context_menu'
   | 'shortcut_blocked'
-  | 'close_attempt';
+  | 'close_attempt'
+  | 'display_added';
 
 export interface PendingEvent {
   id: string;

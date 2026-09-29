@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { request } from '../lib/api';
+import { getDesktop } from '../lib/desktop';
 import { rulesFrom } from '../lib/examRules';
 import { enterFullscreen, exitFullscreen } from '../lib/fullscreen';
 import { idbKV, SecureStore } from '../lib/secureStore';
@@ -50,6 +51,7 @@ export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; on
   }, [entitlement.id]);
 
   const leave = useCallback(() => {
+    void getDesktop()?.exitExamMode();
     void exitFullscreen();
     onExit();
   }, [onExit]);
@@ -58,7 +60,11 @@ export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; on
     async (pkg: ExamPackage): Promise<string | null> => {
       // This runs from the click, which is what lets the browser allow full screen.
       const rules = rulesFrom(pkg.exam.manifest);
-      if (rules.fullscreen && !(await enterFullscreen())) {
+      const desktop = getDesktop();
+      if (desktop) {
+        // The desktop application locks the whole window: kiosk, on top, capture blocked.
+        await desktop.enterExamMode();
+      } else if (rules.fullscreen && !(await enterFullscreen())) {
         return 'Full screen is required for this exam and was blocked. Allow full screen for this site and try again.';
       }
       try {
@@ -69,6 +75,7 @@ export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; on
         setState({ phase: 'ready', pkg, attempt, local, localEvents });
         return null;
       } catch (err) {
+        await desktop?.exitExamMode();
         await exitFullscreen();
         return (err as Error).message;
       }

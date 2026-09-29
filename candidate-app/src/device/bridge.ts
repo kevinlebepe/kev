@@ -3,6 +3,8 @@
 // desktop shell (Tauri or Electron, spec section 13) supplies a native one
 // with kiosk mode, display enumeration and virtual machine detection.
 
+import { type DesktopApi, getDesktop } from '../lib/desktop';
+
 export const APP_VERSION = '0.1.0';
 
 export type Platform = 'windows' | 'macos' | 'linux' | 'chromeos' | 'other';
@@ -18,6 +20,9 @@ export interface DeviceReport {
   virtualMachine: { detected: boolean };
   network: { tested: boolean; latencyMs?: number };
   clientTime: string;
+  /** Only the desktop application can tell the server it is one, and see other programs. */
+  appKind?: 'browser' | 'desktop';
+  restrictedApps?: string[];
 }
 
 export interface DeviceBridge {
@@ -77,3 +82,36 @@ export const browserBridge: DeviceBridge = {
     };
   },
 };
+
+/**
+ * Inside the desktop application the computer itself is asked, so the real
+ * number of screens, free disk space, virtual machine hints and remote control
+ * programs replace the browser's guesses.
+ */
+export function nativeBridge(desktop: DesktopApi): DeviceBridge {
+  return {
+    kind: 'native',
+    limitations: [],
+    async collect(options) {
+      const [web, sys] = await Promise.all([browserBridge.collect(options), desktop.systemReport()]);
+      if (!sys) throw new Error('The desktop application did not report on this computer');
+      return {
+        ...web,
+        appVersion: sys.appVersion,
+        appKind: 'desktop',
+        os: sys.os,
+        storage: { freeMb: sys.freeStorageMb },
+        displays: { count: sys.displayCount },
+        virtualMachine: { detected: sys.virtualMachine.detected },
+        screenCapture: { ready: sys.screenCaptureReady },
+        restrictedApps: sys.restrictedApps,
+      };
+    },
+  };
+}
+
+/** The desktop application's bridge when running inside it, otherwise the browser's. */
+export function currentBridge(): DeviceBridge {
+  const desktop = getDesktop();
+  return desktop ? nativeBridge(desktop) : browserBridge;
+}

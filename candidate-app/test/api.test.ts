@@ -62,6 +62,19 @@ describe('token refresh', () => {
     expect(refreshCalls).toEqual(['refresh-1', 'refresh-2']);
   });
 
+  it('tells the server whether it is the desktop application or a browser', async () => {
+    const kinds: string[] = [];
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (_url: string, init: { headers: Record<string, string> }) => {
+      kinds.push(init.headers['x-examguard-client'] as string);
+      return new Response('{}', { status: 200 });
+    });
+    const { request } = await loadApi();
+    await request('GET', '/a');
+    vi.stubGlobal('window', { examguardDesktop: {} });
+    await request('GET', '/b');
+    expect(kinds).toEqual(['browser', 'desktop']);
+  });
+
   it('gives up cleanly when the refresh token is refused', async () => {
     valid = 'something-else';
     const { request, resumeSession } = await loadApi();

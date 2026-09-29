@@ -1,6 +1,8 @@
 // Thin client for the ExamGuard API. Access tokens live in memory only; the
 // refresh token is kept for the session so a reload does not force a new login.
 
+import { getDesktop } from './desktop';
+
 const BASE = import.meta.env.VITE_API_BASE ?? '/api';
 const REFRESH_KEY = 'examguard.refresh';
 
@@ -39,6 +41,9 @@ async function raw(method: string, path: string, body?: unknown, token = accessT
     method,
     keepalive,
     headers: {
+      // Lets the server keep desktop only exams away from browsers. It is the
+      // app's own claim, so it stops mistakes rather than a determined cheat.
+      'x-examguard-client': getDesktop() ? 'desktop' : 'browser',
       ...(body === undefined ? {} : { 'content-type': 'application/json' }),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },

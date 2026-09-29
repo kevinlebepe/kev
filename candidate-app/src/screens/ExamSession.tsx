@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, request } from '../lib/api';
 import { createServerClock, formatDuration, timeWarning } from '../lib/clock';
+import { getDesktop } from '../lib/desktop';
 import { EventReporter } from '../lib/eventReporter';
 import { noticeText, rulesFrom } from '../lib/examRules';
 import { enterFullscreen, exitFullscreen } from '../lib/fullscreen';
@@ -50,6 +51,9 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
   const deadline = Date.parse(attempt.deadlineAt);
   const allowBacktrack = manifest.config.navigation.allowBacktrack;
   const rules = rulesFrom(manifest);
+  // In the desktop application the whole window is locked, so the browser's
+  // full screen mode is not used and the window starts out in the right state.
+  const desktop = getDesktop();
 
   const [clock] = useState(() => createServerClock(attempt.serverTime));
   const [answers, setAnswers] = useState<Record<string, AnswerResponse>>(() => {
@@ -64,7 +68,7 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
   const [phase, setPhase] = useState<Phase>('answering');
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(() => !rules.fullscreen || Boolean(document.fullscreenElement));
+  const [isFullscreen, setIsFullscreen] = useState(() => !rules.fullscreen || desktop !== null || Boolean(document.fullscreenElement));
   const [notice, setNotice] = useState<string | null>(null);
   const [returnFailed, setReturnFailed] = useState(false);
 
@@ -73,6 +77,9 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
   const submittingRef = useRef(false);
   const positionRef = useRef(index);
   const reporterRef = useRef<EventReporter | null>(null);
+  // Stops watching the rules. Called the moment the exam ends, so the candidate
+  // is not stopped from closing the window on the receipt screen.
+  const stopWatchingRef = useRef<() => void>(() => {});
   // Set to false the moment the exam ends, so leaving full screen afterwards is not reported.
   const rulesActiveRef = useRef(true);
 
@@ -84,15 +91,17 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
   const finish = useCallback(
     (r: Receipt) => {
       rulesActiveRef.current = false;
+      stopWatchingRef.current();
       queueRef.current?.dispose();
       reporterRef.current?.dispose();
       void store.remove(attempt.id);
       void store.remove(`${attempt.id}:events`);
+      void desktop?.exitExamMode();
       void exitFullscreen();
       setReceipt(r);
       changePhase('done');
     },
-    [attempt.id, changePhase, store],
+    [attempt.id, changePhase, desktop, store],
   );
 
   // The save queue lives for as long as the exam is on screen.
@@ -148,7 +157,7 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
     reporter.resume();
     const detach = attachExamRules(
       window,
-      { fullscreen: rules.fullscreen, blockClipboard: rules.blockClipboard },
+      { fullscreen: rules.fullscreen && !desktop, blockClipboard: rules.blockClipboard },
       (type, data) => {
         if (rulesActiveRef.current) reporter.report(type, data);
       },
@@ -158,12 +167,36 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
         onClosing: () => void reporter.flush({ keepalive: true }),
       },
     );
-    return () => {
+
+    // What only the desktop application can see, reported the same way.
+    const report = (type: Parameters<typeof reporter.report>[0], data?: Parameters<typeof reporter.report>[1]) => {
+      if (rulesActiveRef.current) reporter.report(type, data);
+    };
+    const stopDesktop = [
+      desktop?.onFullscreenChange((isFullscreen) => {
+        setIsFullscreen(isFullscreen);
+        if (rules.fullscreen) report(isFullscreen ? 'returned_fullscreen' : 'left_fullscreen');
+      }),
+      desktop?.onCloseRequested(() => {
+        report('close_attempt', { via: 'window' });
+        void reporter.flush({ keepalive: true });
+      }),
+      desktop?.onShortcutBlocked((key) => report('shortcut_blocked', { key })),
+      desktop?.onDisplayAdded((count) => {
+        if (!manifest.config.device.allowExternalMonitors) report('display_added', { count });
+      }),
+    ];
+    const stopWatching = () => {
+      stopDesktop.forEach((stop) => stop?.());
       detach();
+    };
+    stopWatchingRef.current = stopWatching;
+    return () => {
+      stopWatching();
       reporter.dispose();
       reporterRef.current = null;
     };
-  }, [attempt.id, finish, localEvents, rules.blockClipboard, rules.fullscreen, store]);
+  }, [attempt.id, desktop, finish, localEvents, manifest.config.device.allowExternalMonitors, rules.blockClipboard, rules.fullscreen, store]);
 
   const submit = useCallback(
     async (auto: boolean) => {
@@ -238,8 +271,12 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, onEx
   }
 
   async function returnToFullscreen() {
-    const ok = await enterFullscreen();
-    setReturnFailed(!ok);
+    if (desktop) {
+      await desktop.enterExamMode();
+      setReturnFailed(false);
+      return;
+    }
+    setReturnFailed(!(await enterFullscreen()));
   }
 
   function goTo(next: number) {
