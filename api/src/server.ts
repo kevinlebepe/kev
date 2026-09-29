@@ -5,10 +5,19 @@ import { finalizeExpiredAttempts } from './attempts.js';
 import { runFailover } from './failover.js';
 import { deliverWebhooks } from './webhooks.js';
 import { deliverEmails, logTransport, type MailTransport, smtpTransport } from './mail.js';
+import { applyRetention } from './retention.js';
+import { storeFromConfig } from './storage.js';
 
 const config = loadConfig();
 const db = createPool(config.databaseUrl);
-const app = await buildApp({ db, config }, { logger: true });
+const store = storeFromConfig(config);
+const app = await buildApp({ db, config, store }, { logger: true });
+
+// Deletes recordings past the organisation's retention period, and camera stills after the exam.
+const retention = setInterval(() => {
+  applyRetention(db, store).catch((err) => app.log.error(err, 'recording retention failed'));
+}, 60 * 60_000);
+retention.unref();
 
 // Submits attempts that ran out of time without the candidate's device
 // reporting in. Every instance runs this; row locks keep it safe.
@@ -48,6 +57,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     clearInterval(sweeper);
     clearInterval(failover);
     clearInterval(hooks);
+    clearInterval(retention);
     if (mailer) clearInterval(mailer);
     await app.close();
     await db.end();

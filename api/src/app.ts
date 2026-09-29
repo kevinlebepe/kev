@@ -16,10 +16,10 @@ import { resultRoutes } from './modules/results.js';
 import { recordingRoutes } from './modules/recording.js';
 import { callRoutes } from './modules/calls.js';
 import { integrationRoutes } from './modules/integrations.js';
-import { diskStore } from './storage.js';
+import { storeFromConfig } from './storage.js';
 
 export async function buildApp(given: AppDeps, opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
-  const deps: AppDeps = { ...given, store: given.store ?? diskStore(given.config.recordingDir) };
+  const deps: AppDeps = { ...given, store: given.store ?? storeFromConfig(given.config) };
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: deps.config.trustProxy, bodyLimit: 5 * 1024 * 1024 });
 
   // Rate limits apply only where a route opts in (auth and public onboarding).

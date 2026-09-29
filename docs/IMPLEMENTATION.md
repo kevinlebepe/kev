@@ -120,11 +120,11 @@ These are the things a reviewer should know are missing or limited. Each is a de
 
 **Security and identity**
 
-1. **SSO and MFA.** Not built. Login is email and password only.
-2. **Account lockout.** Login is rate limited per address, but repeated failures do not lock an account.
+1. **SSO.** Not built. Sign in is by email and password, with optional two factor codes (required for staff when the organisation chooses). SAML or OpenID Connect sign in through a university's own identity system is not built.
+2. **Two factor codes are for staff screens.** Candidates who turn it on (there is no candidate screen to do so yet) are asked for a code; the candidate app supports that step.
 3. **Distributed rate limiting.** Counts are kept in memory. Several API servers need a Redis store.
 4. **Database level tenant isolation.** Isolation is enforced in every query and tested. PostgreSQL row level security would add a second layer.
-5. **Staff onboarding.** Staff and invigilators are created with a password set by an administrator. An emailed invitation, like the candidates', should replace this.
+5. **The code check has a small window.** Codes one step either side of now are accepted for clock drift, and a used step is never accepted again.
 6. **The application's claim is not proven.** Whether a request comes from the desktop application, and which platform it is on, is the application's own claim. Signed builds with platform attestation, or managed devices, are needed to prove it.
 
 **Desktop application**
@@ -137,8 +137,8 @@ These are the things a reviewer should know are missing or limited. Each is a de
 
 **Recording and live video**
 
-12. **Storage is local disk.** Recordings are kept in `RECORDING_DIR` behind the `ObjectStore` interface in `storage.ts`. Several API servers need shared storage: an S3 compatible implementation of that interface, with encryption at rest.
-13. **No retention or deletion schedule.** `recording_chunks.retention_state` exists, but nothing deletes recordings yet. The organisation's retention period must be applied before real use.
+12. **S3 storage is tested against a stand in, not a live service.** Setting `S3_BUCKET` sends recordings to Amazon S3 or any S3 compatible service (MinIO, R2, Wasabi); the request signing matches Amazon's published example. It has not been run against a real bucket. Encryption at rest is asked for with `S3_SERVER_SIDE_ENCRYPTION`.
+13. **Retention deletes by age only.** Recordings are deleted a set number of days after submission (365 unless the organisation changes it), and camera stills when the exam closes. Holding a recording longer for an appeal or investigation is not built.
 14. **Screen recording in the desktop application is a picture every 10 seconds**, taken of the locked exam window from inside the application. The protection against outside capture would blank a normal screen recording. In a browser the candidate shares the whole screen and it is recorded as video.
 15. **Live video needs TURN on strict networks.** The default is a public STUN server, which connects most home and office networks. Networks that block direct connections need a TURN server in `ICE_SERVERS`. Calls start within one check in (up to 10 seconds) and connection messages are polled once a second; a push channel would make this faster.
 16. **Live calls are not recorded.** The exam's own recording carries on during a call, but the invigilator's voice is not kept.

@@ -127,7 +127,8 @@ Once installed, the **Open in the ExamGuard app** button on the candidate websit
 | `JWT_SECRET`, `EXAM_SIGNING_PRIVATE_KEY`, `EXAM_SIGNING_KEY_ID` | Required; the API refuses to start without them |
 | `PUBLIC_BASE_URL` | Address of the candidate website, used in email links |
 | `SMTP_URL`, `MAIL_FROM` | Outgoing email |
-| `RECORDING_DIR` | Where recordings are kept |
+| `RECORDING_DIR`, or `S3_BUCKET` and the other `S3_` settings | Where recordings are kept: local disk, or S3 compatible storage for several servers |
+| `PORTAL_BASE_URL` | Address of the staff portal, used in staff invitation and password reset links |
 | `ICE_SERVERS` | STUN and TURN servers for live video |
 | `TRUST_PROXY` | Load balancer addresses, so rate limits see real client addresses |
 

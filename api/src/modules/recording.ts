@@ -176,8 +176,13 @@ export async function recordingRoutes(app: FastifyInstance, deps: AppDeps) {
       `SELECT rs.stream_type AS stream, rc.id, rc.sequence, rc.start_time AS "startTime", rc.end_time AS "endTime",
               rc.size_bytes AS "sizeBytes", rc.content_type AS "contentType"
          FROM recording_chunks rc JOIN recording_streams rs ON rs.id = rc.stream_id
-        WHERE rs.attempt_id = $1 AND rc.upload_state = 'uploaded'
+        WHERE rs.attempt_id = $1 AND rc.upload_state = 'uploaded' AND rc.retention_state = 'retained'
         ORDER BY rs.stream_type, rc.sequence`,
+      [id],
+    );
+    const { rows: removed } = await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM recording_chunks rc JOIN recording_streams rs ON rs.id = rc.stream_id
+        WHERE rs.attempt_id = $1 AND rc.retention_state = 'deleted'`,
       [id],
     );
     const state = await evidenceState(db, id);
@@ -186,7 +191,8 @@ export async function recordingRoutes(app: FastifyInstance, deps: AppDeps) {
       type,
       chunks: chunks.filter((c) => c.stream === type).map(({ stream: _s, ...c }) => c),
     }));
-    return { attemptId: id, submission: rows[0].submission, evidence: state, streams };
+    // Pieces removed after the retention period are counted but no longer listed.
+    return { attemptId: id, submission: rows[0].submission, evidence: state, streams, deletedPieces: removed[0]!.n };
   });
 
   app.get('/recording-chunks/:id', { preHandler: authorize('recording:view') }, async (req, reply) => {
@@ -196,7 +202,7 @@ export async function recordingRoutes(app: FastifyInstance, deps: AppDeps) {
       `SELECT rc.storage_key, rc.content_type FROM recording_chunks rc
          JOIN recording_streams rs ON rs.id = rc.stream_id
          JOIN attempts at ON at.id = rs.attempt_id
-        WHERE rc.id = $1 AND at.organisation_id = $2 AND rc.upload_state = 'uploaded'`,
+        WHERE rc.id = $1 AND at.organisation_id = $2 AND rc.upload_state = 'uploaded' AND rc.retention_state = 'retained'`,
       [id, auth.organisationId],
     );
     if (!rows[0]) throw notFound('Recording');
