@@ -2,7 +2,16 @@
 
 Secure online assessment, examination and live invigilation platform. The full product blueprint is in [docs/ExamGuard_Developer_Handoff_Specification_v2.0.pdf](docs/ExamGuard_Developer_Handoff_Specification_v2.0.pdf).
 
-This repository currently holds the **platform API foundation (roadmap phase MVP 1)**, plus the server side rules the specification marks as critical: the invigilator limit of 10, tenant isolation, immutable signed exam versions and an append only audit trail. See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for what maps to which section of the specification and what comes next.
+This repository currently holds:
+
+* **`api/`**: the platform API. It covers roadmap phase MVP 1 (organisations, roles, candidate registration and approval) and the server side of MVP 2 (exam entitlements, the pre exam device check and signed exam package delivery). It also enforces the rules the specification marks as critical: the invigilator limit of 10, tenant isolation, immutable signed exam versions and an append only audit trail.
+* **`candidate-app/`**: the web interface layer of the candidate secure application (spec section 9). Candidates sign in, see their exams, run the device check and open a verified exam package. The desktop shell with kiosk mode is a later step.
+
+See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for what maps to which section of the specification and what comes next.
+
+| Sign in | My exams | Device check | Exam |
+|---|---|---|---|
+| ![Sign in](docs/screenshots/candidate-sign-in.png) | ![My exams](docs/screenshots/candidate-my-exams.png) | ![Device check](docs/screenshots/candidate-device-check.png) | ![Exam](docs/screenshots/candidate-exam.png) |
 
 ## Stack
 
@@ -14,6 +23,7 @@ This repository currently holds the **platform API foundation (roadmap phase MVP
 | Auth | Short lived JWT access tokens, rotating opaque refresh tokens, scrypt password hashes |
 | Exam signing | Ed25519 over canonical JSON |
 | Tests | Vitest against a real PostgreSQL database |
+| Candidate app | React 19, TypeScript, Vite; WebCrypto Ed25519 for package verification |
 
 ## Running locally
 
@@ -43,12 +53,25 @@ curl -XPOST localhost:3000/platform/organisations -H "authorization: Bearer $TOK
 
 The owner then signs in with `{"organisation": "demo-uni", "email": ..., "password": ...}`.
 
+To run the candidate app against the local API:
+
+```bash
+cd candidate-app
+npm install
+npm run dev          # http://localhost:5173, proxies /api to localhost:3000
+```
+
+Candidates sign in with the organisation slug (for example `demo-uni`), their email and password.
+
 ## Tests
 
 ```bash
 cd api
 npm run typecheck
 npm test     # recreates the examguard_test database, then runs all suites
+
+cd ../candidate-app
+npm run typecheck && npm test && npm run build
 ```
 
 Set `TEST_DATABASE_URL` if your database is not at `postgres://examguard:examguard@localhost:5432/examguard_test`. The database user needs permission to create databases.
@@ -63,10 +86,15 @@ api/
   src/
     app.ts           Fastify app, error handling, auth hook
     auth/            passwords, tokens, request auth context and permission checks
-    modules/         route modules: auth, organisations, candidates, exams, sessions, invigilation
+    modules/         route modules: auth, organisations, candidates, exams, sessions, invigilation, candidateApp
     allocation.ts    invigilator allocation algorithm (spec section 7)
     candidateStatus.ts  candidate lifecycle rules (spec section 4)
+    readiness.ts     device check evaluation (spec section 10)
     signing.ts       exam manifest canonicalisation and signing
   test/              unit and integration tests
-docs/                specification and implementation notes
+candidate-app/
+  src/device/        device bridge: browser implementation now, native desktop later
+  src/lib/           API client, package verification
+  src/screens/       sign in, my exams, device check, exam view
+docs/                specification, implementation notes and screenshots
 ```
