@@ -11,7 +11,8 @@
     "seed": "node dist/scripts/seed.js",
     "test": "vitest run",
     "migrate:dev": "tsx src/scripts/migrate.ts",
-    "seed:dev": "tsx src/scripts/seed.ts"
+    "seed:dev": "tsx src/scripts/seed.ts",
+    "demo:dev": "tsx src/scripts/demo.ts"
   },
   "license": "UNLICENSED",
   "dependencies": {

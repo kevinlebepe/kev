@@ -13,6 +13,36 @@ See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for what maps to which sect
 |---|---|---|---|
 | ![Sign in](docs/screenshots/candidate-sign-in.png) | ![My exams](docs/screenshots/candidate-my-exams.png) | ![Device check](docs/screenshots/candidate-device-check.png) | ![Exam](docs/screenshots/candidate-exam.png) |
 
+## Try it yourself
+
+You need [Node.js 22](https://nodejs.org), [Git](https://git-scm.com) and [Docker Desktop](https://www.docker.com/products/docker-desktop) (for the database). Open a terminal and run:
+
+```bash
+git clone https://github.com/kevinlebepe/kev.git
+cd kev
+git checkout claude/new-session-kbmcc6      # until the pull request is merged
+docker compose up -d postgres
+
+cd api
+npm install
+npm run migrate:dev
+SUPER_ADMIN_EMAIL=you@example.com SUPER_ADMIN_PASSWORD='a long password' npm run seed:dev
+npm run dev
+```
+
+Leave that running. In a second terminal:
+
+```bash
+cd kev/api
+SUPER_ADMIN_EMAIL=you@example.com SUPER_ADMIN_PASSWORD='a long password' npm run demo:dev
+
+cd ../candidate-app
+npm install
+npm run dev
+```
+
+The demo command prints a candidate sign in. Open http://localhost:5173, sign in with it, run the device check (allow camera and microphone when asked), then open the exam. On Windows, set the two variables with `set SUPER_ADMIN_EMAIL=...` on separate lines before each command, or use Git Bash.
+
 ## Stack
 
 | Layer | Choice |
