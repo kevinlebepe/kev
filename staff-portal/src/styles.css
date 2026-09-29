@@ -216,3 +216,4 @@ td.details { max-width: 24rem; overflow-wrap: anywhere; }
 .frame { width: 100%; max-width: 20rem; border-radius: 6px; border: 1px solid var(--border); }
 .live-video { width: 100%; border-radius: 8px; background: #000; aspect-ratio: 4 / 3; }
 .live-video.hidden { display: none; }
+.secret { display: block; padding: 0.5rem; background: var(--surface); border-radius: 6px; overflow-wrap: anywhere; user-select: all; }

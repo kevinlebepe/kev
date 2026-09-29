@@ -3,6 +3,7 @@ import { loadConfig } from './config.js';
 import { createPool } from './db.js';
 import { finalizeExpiredAttempts } from './attempts.js';
 import { runFailover } from './failover.js';
+import { deliverWebhooks } from './webhooks.js';
 import { deliverEmails, logTransport, type MailTransport, smtpTransport } from './mail.js';
 
 const config = loadConfig();
@@ -22,6 +23,12 @@ const failover = setInterval(() => {
 }, 30_000);
 failover.unref();
 
+// Webhooks to organisations' own systems.
+const hooks = setInterval(() => {
+  deliverWebhooks(db, { allowPrivate: config.allowPrivateWebhooks }).catch((err) => app.log.error(err, 'webhook delivery failed'));
+}, 10_000);
+hooks.unref();
+
 // Email from the notifications outbox. In development, without SMTP_URL, each
 // email is printed to the log so invitation links can be followed.
 let transport: MailTransport | null = null;
@@ -40,6 +47,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, async () => {
     clearInterval(sweeper);
     clearInterval(failover);
+    clearInterval(hooks);
     if (mailer) clearInterval(mailer);
     await app.close();
     await db.end();

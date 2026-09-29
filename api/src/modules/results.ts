@@ -10,6 +10,7 @@ import { AUTO_MARKED } from '../marking.js';
 import { loadMarkingInput, markFrom, recomputeResult } from '../results.js';
 import { COUNTED_EVENT_TYPES } from '../rules.js';
 import { idParams, parse } from '../validation.js';
+import { enqueueWebhook } from '../webhooks.js';
 
 const marksBody = z.object({
   marks: z
@@ -197,6 +198,18 @@ export async function resultRoutes(app: FastifyInstance, deps: AppDeps) {
         [id, auth.organisationId, auth.userId],
       );
       for (const r of released) {
+        const { rows: detail } = await tx.query(
+          `SELECT at.id AS "attemptId", r.score::float AS score, r.max_score::float AS "maxScore", r.released_at AS "releasedAt",
+                  s.id AS "sessionId", s.name AS "sessionName", v.manifest->>'code' AS "examCode", v.version AS "examVersion",
+                  json_build_object('id', c.id, 'email', c.email, 'studentId', c.student_id, 'fullName', c.full_name) AS candidate
+             FROM results r JOIN attempts at ON at.id = r.attempt_id
+             JOIN exam_assignments a ON a.id = at.assignment_id JOIN candidates c ON c.id = a.candidate_id
+             JOIN sessions s ON s.id = a.session_id JOIN exam_versions v ON v.id = at.exam_version_id
+            WHERE r.attempt_id = $1`,
+          [r.attempt_id],
+        );
+        const d = detail[0] as { score: number; maxScore: number };
+        await enqueueWebhook(tx, auth.organisationId, 'result.released', { ...d, percent: percent(d.score, d.maxScore) });
         await notify(tx, {
           organisationId: auth.organisationId,
           kind: 'result_released',

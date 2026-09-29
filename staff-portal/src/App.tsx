@@ -12,6 +12,7 @@ import { LiveSessions, LiveConsole } from './pages/Live';
 import { MarkingSessions, Results, Marking } from './pages/Results';
 import { Staff } from './pages/Staff';
 import { Audit } from './pages/Audit';
+import { Integrations } from './pages/Integrations';
 
 interface NavItem {
   path: string;
@@ -27,6 +28,7 @@ const NAV: NavItem[] = [
   { path: 'candidates', text: 'Candidates', permission: 'candidate:view' },
   { path: 'invigilators', text: 'Invigilators', permission: 'invigilator:create' },
   { path: 'staff', text: 'Staff', permission: 'organisation:manage_users' },
+  { path: 'integrations', text: 'Integrations', permission: 'organisation:manage_users' },
   { path: 'audit', text: 'Audit log', permission: 'audit:view' },
 ];
 
@@ -125,6 +127,8 @@ function render(section: string | undefined, id: string | undefined, sub: string
       return <Staff />;
     case 'audit':
       return <Audit />;
+    case 'integrations':
+      return <Integrations />;
     default:
       return <NotFound />;
   }

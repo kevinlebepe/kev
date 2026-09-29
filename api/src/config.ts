@@ -103,6 +103,8 @@ export interface Config {
   smtpUrl: string | null;
   /** STUN and TURN servers for live video, as RTCIceServer objects. */
   iceServers: { urls: string | string[]; username?: string; credential?: string }[];
+  /** Lets webhooks reach private and local addresses. Development only. */
+  allowPrivateWebhooks: boolean;
   /** Folder for recordings when no other store is configured. */
   recordingDir: string;
   mailFrom: string;
@@ -125,6 +127,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     smtpUrl: process.env.SMTP_URL || null,
     recordingDir: process.env.RECORDING_DIR ?? 'recordings',
     iceServers: parseIceServers(process.env.ICE_SERVERS),
+    allowPrivateWebhooks: !isProduction && process.env.ALLOW_PRIVATE_WEBHOOKS !== '0',
     mailFrom: process.env.MAIL_FROM ?? 'ExamGuard <no-reply@examguard.local>',
     ...overrides,
   };

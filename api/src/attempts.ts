@@ -5,6 +5,7 @@ import { audit } from './audit.js';
 import type { AnswerKey, StoredAnswer } from './marking.js';
 import { recomputeResult } from './results.js';
 import { expectedStreams, verifySubmission } from './recording.js';
+import { enqueueWebhook } from './webhooks.js';
 import { canonicalJson, signManifest } from './signing.js';
 
 export type SubmittedBy = 'candidate' | 'timer' | 'system';
@@ -119,6 +120,7 @@ export async function finalizeAttempt(
       { by, answered: answers.size, total },
     ],
   );
+  await enqueueWebhook(tx, attempt.organisation_id, 'attempt.submitted', await submittedPayload(tx, attemptId));
   await audit(tx, {
     organisationId: attempt.organisation_id,
     actorUserId: actor.userId,
@@ -184,4 +186,23 @@ export async function finalizeExpiredAttempts(db: Db, config: Config, limit = 50
     });
   }
   return closed;
+}
+
+/** What a webhook receiver learns about a submission. Answers are not included. */
+async function submittedPayload(q: Queryable, attemptId: string): Promise<Record<string, unknown>> {
+  const { rows } = await q.query(
+    `SELECT at.id AS "attemptId", at.submitted_at AS "submittedAt", at.submitted_by AS "submittedBy",
+            s.id AS "sessionId", s.name AS "sessionName", v.manifest->>'code' AS "examCode", v.version AS "examVersion",
+            json_build_object('id', c.id, 'email', c.email, 'studentId', c.student_id, 'fullName', c.full_name) AS candidate,
+            sub.answered, sub.total, sub.id AS "receiptId"
+       FROM attempts at
+       JOIN exam_assignments a ON a.id = at.assignment_id
+       JOIN candidates c ON c.id = a.candidate_id
+       JOIN sessions s ON s.id = a.session_id
+       JOIN exam_versions v ON v.id = at.exam_version_id
+       JOIN submissions sub ON sub.attempt_id = at.id
+      WHERE at.id = $1`,
+    [attemptId],
+  );
+  return rows[0] as Record<string, unknown>;
 }
