@@ -1,6 +1,6 @@
 # Implementation Notes
 
-Status as at 29 September 2026 (MVP 1, MVP 2 and MVP 3 except recording, the exam rules layer from MVP 7, and the first version of the desktop application). This file maps the handoff specification (v2.0) to the code and lists what remains.
+Status as at 29 September 2026: a first version of every roadmap phase (MVP 1 to MVP 8) is built, with the gaps listed at the end. This file maps the handoff specification (v2.0) to the code and says plainly what is not done.
 
 ## What is built
 
@@ -27,12 +27,22 @@ Two decisions differ slightly from the specification's wording:
 | Exams | `POST/GET /exams`, `GET/PATCH /exams/:id`, `PUT /exams/:id/questions`, `POST /exams/:id/publish` | `exam:create`, `exam:publish` |
 | Questions | `POST/GET /questions` | `exam:create` |
 | Packages | `GET /exam-versions/:id/package`, `GET /exam-signing-key` | `exam:create`, public |
-| Sessions | `POST /sessions`, `GET /sessions/:id/status`, `POST /sessions/:id/invigilators`, `POST /assignments` | `session:manage`, `invigilation:allocate` |
+| Sessions | `POST /sessions`, `GET /sessions` (also `report:view`), `PATCH /sessions/:id`, `GET /sessions/:id/status`, `POST /sessions/:id/invigilators`, `POST /assignments` | `session:manage`, `invigilation:allocate` |
+| Published versions | `GET /exam-versions` | `session:manage` |
 | Invigilators | `POST/GET /invigilators`, `PATCH /invigilators/:id` | `invigilator:create` |
-| Live | `POST /live/assignments` (auto or manual), `POST /live/assignments/:id/release`, `GET /live/sessions/:id` | `invigilation:allocate`, `live:view` |
+| Allocation | `POST /live/assignments` (auto or manual), `POST /live/assignments/:id/release` | `invigilation:allocate` |
+| Live console | `GET /live/sessions`, `GET /live/sessions/:id`, `GET /live/attempts/:id`, `GET /live/attempts/:id/snapshot` | `live:view`; invigilators see their own candidates, session managers see all |
+| Invigilator actions | `POST /live/attempts/:id/messages`, `/extend`, `/end`, `/notes` | `live:view`, in scope |
+| Live video and voice | `POST /live/attempts/:id/calls`, `POST/GET /live/calls/:id/signals`, `POST /live/calls/:id/end`, `GET /live/ice-servers` | `live:view`; voice needs `live:voice` |
 | Candidate app | `GET /me/entitlements`, `POST /me/entitlements/:id/precheck`, `GET /me/entitlements/:id/package` | signed in candidate |
 | Readiness | `GET /sessions/:id/readiness` | `session:manage` |
-| Attempts | `POST /attempts/start`, `GET /attempts/:id`, `PATCH /attempts/:id/state`, `POST /attempts/:id/submit` | signed in candidate |
+| Attempts | `POST /attempts/start`, `GET /attempts/:id`, `PATCH /attempts/:id/state`, `POST /attempts/:id/submit`, `POST /attempts/:id/heartbeat` | signed in candidate |
+| Candidate side of calls | `GET/POST /attempts/:id/calls/:callId/signals` | signed in candidate |
+| Recording | `POST /attempts/:id/recording/:stream/:sequence`, `GET /attempts/:id/recording/state`, `POST /attempts/:id/recording/complete`, `POST /attempts/:id/snapshot` | signed in candidate |
+| Recording review | `GET /attempts/:id/recordings`, `GET /recording-chunks/:id` | `recording:view` |
+| Marking | `GET/PUT /marking/attempts/:id` | `result:mark` |
+| Results | `GET /sessions/:id/results` (JSON or CSV), `POST /sessions/:id/results/release`, `GET /me/results` | `report:view`, `result:release`, signed in candidate |
+| Webhooks | `GET/PUT /integrations/webhook`, `POST /integrations/webhook/test` | `organisation:manage_users` |
 | Exam rules | `POST /attempts/:id/events` | signed in candidate |
 | Desktop application | request header `x-examguard-client`, device check fields `appKind` and `restrictedApps` | signed in candidate |
 | Attempt overview and timeline | `GET /sessions/:id/attempts`, `GET /attempts/:id/timeline` | `report:view` |
@@ -69,7 +79,7 @@ Two decisions differ slightly from the specification's wording:
 | Answers validated against the signed manifest, never trusted from the client (s6) | `validateAnswer` in `modules/attempts.ts` |
 | Automatic submission when the timer expires, even if the device never reports back (s9) | client submits at zero; the server closes overdue attempts after a grace period (`finalizeExpiredAttempts`, run every 30 seconds on each instance) |
 | Submission receipt, signed and identical on every retry (s9) | `finalizeAttempt` in `attempts.ts` |
-| Automatic marking of choice questions; free text left for a human (s6) | `marking.ts`; results are stored, never shown to candidates |
+| Automatic marking of choice questions; free text left for a human (s6) | `marking.ts`; candidates see a result only once it is released |
 | Autosave survives network loss and restarts, with a visible status that does not rely on colour (s9, s11, s23) | `lib/saveQueue.ts`, `lib/secureStore.ts` |
 | Attempt events and audit trail: started, resumed, submitted, auto submitted (s16, s22) | `events` and `audit_logs` |
 | Candidate is told the rules and consequences before the timer starts (s19) | `screens/RulesScreen.tsx`; the attempt starts only when the candidate presses start |
@@ -87,50 +97,79 @@ Two decisions differ slightly from the specification's wording:
 | Real screen count, free disk, virtual machine hints and screen sharing or remote control programs (s10) | `desktop-app/src/system.ts`; a program from the list fails the device check and is named; another screen appearing during the exam is a counted violation |
 | The page can only reach ExamGuard: no other sites, no new windows, no Node, only camera, microphone and full screen granted (s19) | `desktop-app/src/navigation.ts`, `preload.ts`, sandboxed window |
 | API instances survive a database failover (s17) | pool error handler in `db.ts`; `test/resilience.test.ts` |
-| CI with typecheck, tests and dependency audit (s21) | `.github/workflows/api.yml`, `.github/workflows/candidate-app.yml` |
+| Organisation portal and invigilator console (s13) | `staff-portal/`; the sections shown follow the person's permissions |
+| Live console: presence, time left, rule breaks, last event, messages, warnings, extra time (at most 120 minutes), ending an attempt with a reason, notes (s8) | `modules/live.ts`, `staff-portal/src/pages/Live.tsx` |
+| The candidate sees messages, warnings and extra time, and is told who ended the exam (s9) | `POST /attempts/:id/heartbeat` every 10 seconds, `candidate-app/src/lib/heartbeat.ts` |
+| Invigilator failover: candidates of an invigilator who is paused, suspended or gone move to one who is connected and has room (s7, s8) | `failover.ts`, run every 30 seconds; never breaks the limit of 10 |
+| Live video and voice, with the candidate always told (s8, s13, MVP 6 and 7) | `modules/calls.ts`, `candidate-app/src/lib/liveCall.ts`, `staff-portal/src/lib/liveCall.ts`; voice calls logged in `invigilation_contacts` |
+| Camera, microphone and screen recording in pieces, each with a checksum, stored once, retried (s12, MVP 4) | `modules/recording.ts`, `candidate-app/src/lib/recording.ts`; `recording_chunks` unique on stream and sequence |
+| Submission verified only when the evidence has arrived (s12) | `recording.ts`: `evidence_pending` until every declared piece of every expected stream is in; exams without recording are verified at once |
+| Recordings survive a reload; a reopened exam carries on numbering (s11, s12) | `lib/pieceVault.ts` keeps unsent pieces encrypted on the device; `GET /attempts/:id/recording/state` |
+| Offline: answers and rule events kept on the device; time away recorded and flagged past the exam's limit (s11, MVP 5) | `touch` in `modules/attempts.ts`, offline banner in `ExamSession.tsx` |
+| Human marking of free text, results released per session, CSV export safe from spreadsheet formulas (s6, MVP 8) | `modules/results.ts`, `results.ts`; released results cannot be changed |
+| Candidates see results only after release (s6) | `GET /me/results`, "My results" in the candidate app |
+| Email delivery from the outbox: invitation, email confirmation, exam assigned, result released (s14, s20) | `mail.ts`; retried, links removed once sent |
+| Candidate onboarding screens: accept an invitation, confirm an email address, register (s3, s4) | `candidate-app/src/screens/Onboarding.tsx` |
+| Webhooks to the organisation's systems, signed, retried, never to private addresses (s24, MVP 8) | `webhooks.ts`, `modules/integrations.ts` |
+| Desktop installers for Windows, macOS and Linux, with the exam address fixed at build time (s13) | `desktop-app/electron-builder.yml`, `.github/workflows/desktop-installers.yml`, `desktop-app/src/appConfig.ts` |
+| CI with typecheck, tests, builds and dependency audit (s21) | `.github/workflows/` |
 
-## Known gaps in this phase
+## Known gaps
 
-1. **Email delivery.** Notifications are written to the outbox, but no worker sends them yet. The worker must clear `payload.link` after sending, because it contains a live token.
-2. **SSO and MFA.** Not built. Login is email and password only.
-3. **Account lockout.** Login is rate limited per IP, but repeated failures do not yet lock an account.
-4. **Distributed rate limiting.** The rate limiter keeps counts in memory. With several API instances it needs a Redis store.
-5. **Database level tenant isolation.** Isolation is enforced in application queries and covered by tests. PostgreSQL row level security would add a second layer.
-6. **Staff onboarding.** New staff and invigilators are created with a password set by an administrator. An emailed invitation flow like the one for candidates should replace this.
-7. **Invigilator failover.** Assignments are preserved when an invigilator is paused. Automatic reassignment and the `disconnected` status need live presence, which arrives with the live console in MVP 6.
-8. **Desktop shell (first version built).** A web page cannot enforce the exam rules; it can only detect and report them. In a browser the candidate can exit full screen (the app hides the exam and reports it), switch tabs or programs (reported), and close the window (a prompt appears and the attempt is reported). The candidate can still use a second device, take a photo of the screen, or use a screenshot tool, and none of that is detectable. Real enforcement needs the desktop application: kiosk mode, blocked system shortcuts, a disabled clipboard, protection against screen capture of the exam window, detection of extra displays and virtual machines, and closing intercepted. Even then, on an unmanaged laptop the operating system keeps some keys, such as Ctrl+Alt+Del on Windows, so the specification's guidance to use managed devices for the strictest exams still applies. The desktop application now exists (`desktop-app/`, Electron) and locks the window as described above. What is not done: installers for Windows and macOS, code signing and notarisation (needs an Apple developer account and a Windows certificate), automatic updates, and proof that a request really comes from a genuine, unmodified application (see gap 19). It was built and tested on Linux under a virtual display; how kiosk mode behaves on real Windows and macOS screens has to be tried on those computers. The spec calls for a desktop application (Tauri or Electron) for kiosk mode. All device access already goes through `DeviceBridge`, so the desktop shell only has to supply a native implementation.
-9. **Browser device checks are partial.** In a browser, virtual machine detection, kiosk mode and the screen capture permission cannot be tested. The browser reports these as passing, and the screen says so. Storage is the browser's quota, not free disk space. The native bridge must report real values.
-10. **Package confidentiality before the start.** The package can be downloaded from 10 minutes before the session (`PACKAGE_PREFETCH_MINUTES`). Earlier offline caching would need the package encrypted, with the key released at the start time.
-11. **Local encryption is only as strong as a browser allows.** Unsent answers are encrypted with a non extractable AES key held in IndexedDB. That stops other programs reading or editing the data in place, but not the person using the device. The desktop shell should keep the key in the operating system keystore. The package itself is not cached locally yet (MVP 5).
-12. **No recording, so no evidence check yet.** A submission is stored as `received`. It becomes `verified` once the recording pipeline (MVP 4) confirms the evidence chunks. The specification says submission waits for evidence unless policy allows deferral.
-13. **Offline is short term only.** A dropped connection is survived: answers are kept and retried, and the timer keeps running. The full offline engine (local timer policy, maximum offline duration, resumable uploads) is MVP 5. Until then a candidate who is offline at the deadline is submitted by the server with what it holds.
-14. **Marking.** Multiple response is all or nothing. Partial credit needs an organisation policy. There is no screen yet for a human to mark free text, and results are not yet released to candidates (MVP 8).
-15. **Question types.** File upload questions are refused by the API and shown as unsupported in the app.
-16. **What counts as a violation.** Leaving full screen, leaving the window (another tab or program) and trying to close or reload count. Blocked clipboard and shortcut attempts are recorded but do not count, because the action was already prevented and an accidental Ctrl+C should not end someone's exam. Reloading the page counts as a close attempt. Sending a notification, an operating system pop up or a screen reader dialog that takes focus can look like leaving the window, so organisations should choose `warn_then_submit` with a sensible limit unless they accept ending exams for such events. Accessibility accommodations that need other software must be configured explicitly (specification section 23), and that is not built.
-17. **Retakes and extra time.** There is one attempt per entitlement. Assigning a candidate again after a failure, and per candidate time accommodations, are not built.
+These are the things a reviewer should know are missing or limited. Each is a deliberate stopping point, not an oversight.
 
-## Next phases (spec section 24)
+**Security and identity**
 
-| Phase | Scope | Builds on |
-|---|---|---|
-| MVP 2 | Done, except the desktop shell (see gap 8) | |
-| MVP 3 | Done, except that evidence is not yet checked before a submission counts as verified (gap 12) | |
-| MVP 4 | Chunked recording upload to S3 compatible storage | `recording_streams`, `recording_chunks` (unique on stream and sequence) |
-| MVP 5 | Offline sync and recovery | client side encrypted store, server idempotency |
-| MVP 6 | Live console over WebRTC, presence, failover | `invigilation_assignments` |
-| MVP 7 | Rule events and timeline are done. Still to do: voice contact and blackout reports | `invigilation_contacts`, `events` |
-| MVP 8 | Results release, recording review, exports, integrations | `results`, `integration_configs` |
+1. **SSO and MFA.** Not built. Login is email and password only.
+2. **Account lockout.** Login is rate limited per address, but repeated failures do not lock an account.
+3. **Distributed rate limiting.** Counts are kept in memory. Several API servers need a Redis store.
+4. **Database level tenant isolation.** Isolation is enforced in every query and tested. PostgreSQL row level security would add a second layer.
+5. **Staff onboarding.** Staff and invigilators are created with a password set by an administrator. An emailed invitation, like the candidates', should replace this.
+6. **The application's claim is not proven.** Whether a request comes from the desktop application, and which platform it is on, is the application's own claim. Signed builds with platform attestation, or managed devices, are needed to prove it.
 
-The admin portal and invigilator console (React and TypeScript, spec section 13) have not been started. They can be built against the endpoints above, reusing the patterns in `candidate-app/`.
+**Desktop application**
 
+7. **Installers are not signed.** macOS gets an ad hoc signature only, so it warns on first open and needs notarisation with an Apple Developer ID. Windows shows a SmartScreen warning until a code signing certificate is used. There are no automatic updates yet.
+8. **Tested on Linux only.** Kiosk mode, real key delivery, camera prompts and link handling were driven in a real Electron window under a virtual display, and the packaged Linux build was run. Windows and macOS behaviour needs trying on those computers.
+9. **What the application cannot stop.** Ctrl+Alt+Del and the Windows key on Windows, and the three finger gestures and Cmd+Tab on macOS, belong to the operating system; the application takes focus back and reports leaving. A second device, a photograph of the screen and hardware capture are not detectable. The strictest exams need managed devices or a person in the room.
+10. **Detection is best effort.** Virtual machine and screen sharing detection uses the computer's own hints and a list of program names.
+11. **Phones and tablets are not locked by ExamGuard.** They use the browser; the organisation must lock them with its own device management (for example Guided Access on iPad).
+
+**Recording and live video**
+
+12. **Storage is local disk.** Recordings are kept in `RECORDING_DIR` behind the `ObjectStore` interface in `storage.ts`. Several API servers need shared storage: an S3 compatible implementation of that interface, with encryption at rest.
+13. **No retention or deletion schedule.** `recording_chunks.retention_state` exists, but nothing deletes recordings yet. The organisation's retention period must be applied before real use.
+14. **Screen recording in the desktop application is a picture every 10 seconds**, taken of the locked exam window from inside the application. The protection against outside capture would blank a normal screen recording. In a browser the candidate shares the whole screen and it is recorded as video.
+15. **Live video needs TURN on strict networks.** The default is a public STUN server, which connects most home and office networks. Networks that block direct connections need a TURN server in `ICE_SERVERS`. Calls start within one check in (up to 10 seconds) and connection messages are polled once a second; a push channel would make this faster.
+16. **Live calls are not recorded.** The exam's own recording carries on during a call, but the invigilator's voice is not kept.
+
+**Offline**
+
+17. **The exam cannot start offline.** The package is downloaded shortly before the start, and starting needs the server. Caching an encrypted package with the key released at the start time is not built.
+18. **Time away is recorded, not enforced.** Going past the exam's offline limit is flagged high for review; it does not end the exam, because the timer keeps running anyway and a network fault is rarely the candidate's doing.
+
+**Exams and results**
+
+19. **Marking.** Multiple response questions are all or nothing; partial credit needs an organisation policy. There is no second marker or moderation step.
+20. **Question types.** File upload questions are refused.
+21. **Retakes and accommodations.** One attempt per entitlement. Extra time can be given live, but standing per candidate accommodations are not built.
+22. **Webhooks.** The address is checked for private networks before each send, but DNS is resolved again by the request itself, so a determined DNS rebinding attack is not fully closed. A pinned resolver would close it. The row is held locked while the request runs (up to 10 seconds), which is fine at modest volume.
+
+## How the pieces fit
+
+```
+Candidate website or desktop app ──> API ──> PostgreSQL
+        │   heartbeat every 10 s          ├── recordings on disk (or S3)
+        │   recording pieces              ├── email outbox ──> SMTP
+        │                                 └── webhook outbox ──> organisation's systems
+        └──── WebRTC audio and video ────> Staff portal (invigilator)
+                (API passes the connection messages only)
+```
+
+Background jobs run on every API server, each safe to run on several at once: closing overdue attempts (30 s), invigilator failover (30 s), email (10 s) and webhooks (10 s).
 
 ## Desktop application and device routing
 
-The rule for an exam with `requireDesktopApp`: a laptop or desktop computer (Windows, macOS, Linux, or anything unrecognised) must use the desktop application. Phones, tablets and Chromebooks cannot run it, so they use the browser. The organisation lists the systems it accepts in `supportedOs`, and must lock down phones and tablets with its own device management (for example Guided Access on iPad or a kiosk profile on Android), which ExamGuard cannot do from a web page.
+The rule for an exam with `requireDesktopApp`: a laptop or desktop computer (Windows, macOS, Linux, or anything unrecognised) must use the desktop application. Phones, tablets and Chromebooks cannot run it, so they use the browser. The organisation lists the systems it accepts in `supportedOs`.
 
-18. **Screen capture protection blocks the exam window from other programs.** That includes ExamGuard's own screen recording (MVP 4): the exam window will look blank in it. The recording pipeline will have to record the screen from inside the application, or the setting has to be revisited.
-19. **The application's claim is not proven.** The client kind and the platform come from the application itself. A determined person could send the same messages from a browser. Closing this gap needs signed builds and platform attestation, or managed devices.
-20. **Things the desktop application cannot stop.** Ctrl+Alt+Del on Windows, the Windows key combinations, and on macOS the three finger swipes and Cmd+Tab are handled by the operating system. The application takes focus back and reports leaving. A second device, a photograph of the screen, and a hardware screen capture are not detectable. The strictest exams need managed devices or a person watching.
-21. **Detection is best effort.** Virtual machine and screen sharing program detection uses the computer's own hints and a list of program names. It lowers the chance of an honest mistake or a casual attempt and can be evaded by someone who prepares.
-22. **The installed application must be found.** The "Open in the ExamGuard app" link works once the packaged application is installed, because only installed builds register the `examguard://` link type. Running from source does not change the computer's settings.
-23. **Tested on Linux only.** The window locking, blocked keys, closing interception, second screen and link handling were driven in a real Electron window under a virtual display, and all their logic has unit tests. Real key delivery, the macOS and Windows behaviour of kiosk mode, and camera permission prompts on macOS need to be tried on those computers.
+The **Open in the ExamGuard app** button uses an `examguard://open?exam=<id>` link. Only the exam id travels, never an address or a password, and the application always opens its own exam address. An installed build takes that address from the build (`EXAMGUARD_APP_URL`), ignores the `EXAMGUARD_URL` override that works when running from source, and refuses plain HTTP to anything but the local computer.
