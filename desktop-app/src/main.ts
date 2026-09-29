@@ -1,16 +1,22 @@
 import { execFile } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { readFile, statfs } from 'node:fs/promises';
 import path from 'node:path';
 import { app, BrowserWindow, clipboard, ipcMain, Menu, screen, session, systemPreferences, type IpcMainInvokeEvent } from 'electron';
+import { bundledAppUrl, resolveAppUrl } from './appConfig';
 import { findLaunchLink, launchTarget, parseLaunchLink, PROTOCOL } from './launch';
 import { ExamMode } from './lockdown';
 import { isAllowedNavigation, isAllowedPermission } from './navigation';
 import { blockedShortcut } from './shortcuts';
 import { collectSystemReport, type SystemEnv } from './system';
 
-// Where the exam screens are served from. Production builds will set this to
-// the organisation's ExamGuard address.
-const APP_URL = process.env.EXAMGUARD_URL ?? 'http://localhost:5173';
+// Where the exam screens are served from: fixed into an installed build, and
+// overridable with EXAMGUARD_URL only when running from source.
+const APP_URL = resolveAppUrl({
+  packaged: app.isPackaged,
+  env: process.env,
+  bundled: bundledAppUrl(() => readFileSync(path.join(__dirname, 'app-config.json'), 'utf8')),
+});
 const APP_ORIGIN = new URL(APP_URL).origin;
 // Developer tools are for development only, never in an exam build.
 const DEV = !app.isPackaged && process.env.EXAMGUARD_DEV === '1';
