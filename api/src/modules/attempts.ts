@@ -206,6 +206,7 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
         exam_version_id: string;
         config: unknown;
         attempt_id: string | null;
+        platform: string | null;
       }>(
         `SELECT a.status, c.status AS candidate_status, s.status AS session_status, s.starts_at, s.ends_at,
                 s.exam_version_id, v.manifest->'config' AS config,
@@ -213,11 +214,13 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
                 now() < s.starts_at AS before_start,
                 now() > s.ends_at AS after_end,
                 now() > s.starts_at + make_interval(mins => coalesce((v.manifest#>>'{config,timing,startWindowMinutes}')::int, 15)
-                                                             + coalesce((v.manifest#>>'{config,timing,lateEntryMinutes}')::int, 0)) AS after_window
+                                                             + coalesce((v.manifest#>>'{config,timing,lateEntryMinutes}')::int, 0)) AS after_window,
+                rc.report#>>'{os,platform}' AS platform
            FROM exam_assignments a
            JOIN candidates c ON c.id = a.candidate_id
            JOIN sessions s ON s.id = a.session_id
            JOIN exam_versions v ON v.id = s.exam_version_id
+           LEFT JOIN readiness_checks rc ON rc.id = a.last_check_id
           WHERE a.id = $1 AND a.candidate_id = $2 AND a.organisation_id = $3`,
         [assignmentId, auth.candidateId, auth.organisationId],
       );
@@ -246,7 +249,7 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
       if (row.after_end || row.after_window) throw conflict('The start window for this exam has closed; contact exam support');
 
       const parsed = examConfig.parse(row.config ?? {});
-      enforceClient(req, parsed);
+      enforceClient(req, parsed, row.platform);
       const duration = parsed.timing.durationMinutes;
       if (!duration) throw conflict('This exam has no duration configured');
 

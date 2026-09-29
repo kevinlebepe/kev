@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import type { ExamConfig } from './examConfig.js';
+import { browserAllowedOn } from './client.js';
 
 // What the candidate application reports after running its device check
 // (spec section 10). The server decides pass or fail; the client only reports.
 export const readinessReport = z.object({
   appVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
-  os: z.object({ platform: z.enum(['windows', 'macos', 'linux', 'chromeos', 'other']), version: z.string().max(100) }),
+  os: z.object({ platform: z.enum(['windows', 'macos', 'linux', 'chromeos', 'android', 'ios', 'other']), version: z.string().max(100) }),
   camera: z.object({ detected: z.boolean() }),
   microphone: z.object({ detected: z.boolean() }),
   screenCapture: z.object({ ready: z.boolean() }),
@@ -64,11 +65,12 @@ export function evaluateReadiness(
   );
 
   if (device.requireDesktopApp) {
+    const inApp = report.appKind === 'desktop';
     check(
       'desktop_app',
-      report.appKind === 'desktop',
-      'Running in the ExamGuard desktop application',
-      'This exam must be taken in the ExamGuard desktop application, not a browser',
+      inApp || browserAllowedOn(report.os.platform),
+      inApp ? 'Running in the ExamGuard desktop application' : 'A browser is allowed on this kind of device',
+      'This exam must be taken in the ExamGuard desktop application on a laptop or desktop computer',
     );
   }
 

@@ -4,10 +4,11 @@
 // with kiosk mode, display enumeration and virtual machine detection.
 
 import { type DesktopApi, getDesktop } from '../lib/desktop';
+import { detectDevice, type Platform as DevicePlatform } from '../lib/deviceType';
 
 export const APP_VERSION = '0.1.0';
 
-export type Platform = 'windows' | 'macos' | 'linux' | 'chromeos' | 'other';
+export type Platform = DevicePlatform;
 
 export interface DeviceReport {
   appVersion: string;
@@ -33,13 +34,7 @@ export interface DeviceBridge {
 }
 
 function detectPlatform(): { platform: Platform; version: string } {
-  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
-  const source = (nav.userAgentData?.platform ?? navigator.userAgent).toLowerCase();
-  if (source.includes('win')) return { platform: 'windows', version: '' };
-  if (source.includes('mac')) return { platform: 'macos', version: '' };
-  if (source.includes('cros') || source.includes('chrome os')) return { platform: 'chromeos', version: '' };
-  if (source.includes('linux')) return { platform: 'linux', version: '' };
-  return { platform: 'other', version: '' };
+  return { platform: detectDevice(navigator).platform, version: '' };
 }
 
 /** Asks for the device once to confirm it exists and works, then releases it. */

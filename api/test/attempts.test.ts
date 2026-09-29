@@ -593,7 +593,7 @@ const desktopReport = () => ({ ...passingReport(), appKind: 'desktop' });
 
 describe('desktop only exams', () => {
   async function desktopExam(org: TestOrg) {
-    const exam = await buildExam(org, undefined, { requireDesktopApp: true, supportedOs: ['windows', 'macos', 'linux', 'chromeos'] });
+    const exam = await buildExam(org, undefined, { requireDesktopApp: true, supportedOs: ['windows', 'macos', 'linux', 'chromeos', 'android', 'ios'] });
     const sessionId = await session(h, org, exam.versionId, { startsAt: minutesFromNow(-1), endsAt: minutesFromNow(180) });
     const name = uniq('cand');
     const candidateId = await approvedCandidate(h, org, name);
@@ -629,6 +629,29 @@ describe('desktop only exams', () => {
     expect(start.body.error.message).toMatch(/desktop application/);
     const { rows } = await h.db.query('SELECT count(*)::int AS n FROM attempts WHERE assignment_id = $1', [c.assignmentId]);
     expect(rows[0].n).toBe(0);
+  });
+
+  it('lets a tablet, phone or Chromebook use the browser instead', async () => {
+    for (const platform of ['ios', 'android', 'chromeos']) {
+      const org = await createOrg(h);
+      const c = await desktopExam(org);
+      const report = { ...passingReport(), os: { platform, version: '17' } };
+      const check = await call(h, 'POST', `/me/entitlements/${c.assignmentId}/precheck`, c.token, report);
+      expect(check.body.passed, platform).toBe(true);
+      expect((await call(h, 'GET', `/me/entitlements/${c.assignmentId}/package`, c.token)).status, platform).toBe(200);
+      expect((await call(h, 'POST', '/attempts/start', c.token, { assignmentId: c.assignmentId })).status, platform).toBe(201);
+    }
+  });
+
+  it('still refuses a browser that says it is on a computer, and one that says nothing useful', async () => {
+    for (const platform of ['windows', 'macos', 'linux', 'other']) {
+      const org = await createOrg(h);
+      const c = await desktopExam(org);
+      const report = { ...passingReport(), os: { platform, version: '1' } };
+      const check = await call(h, 'POST', `/me/entitlements/${c.assignmentId}/precheck`, c.token, report);
+      const failed = check.body.checks.filter((x: { passed: boolean }) => !x.passed).map((x: { key: string }) => x.key);
+      expect(failed, platform).toContain('desktop_app');
+    }
   });
 
   it('lets the desktop application download, start and finish the exam', async () => {

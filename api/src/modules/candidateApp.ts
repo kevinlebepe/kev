@@ -120,16 +120,19 @@ export async function candidateAppRoutes(app: FastifyInstance, deps: AppDeps) {
       manifest_sha256: string;
       signature: string;
       signing_key_id: string;
+      platform: string | null;
     }>(
       `SELECT a.status, c.status AS candidate_status, s.id AS session_id, s.status AS session_status,
               v.id AS exam_version_id,
               s.starts_at - make_interval(mins => $4) AS not_before, s.ends_at AS not_after,
               now() < s.starts_at - make_interval(mins => $4) AS too_early, now() > s.ends_at AS too_late,
-              v.manifest, v.manifest_sha256, v.signature, v.signing_key_id
+              v.manifest, v.manifest_sha256, v.signature, v.signing_key_id,
+              rc.report#>>'{os,platform}' AS platform
          FROM exam_assignments a
          JOIN candidates c ON c.id = a.candidate_id
          JOIN sessions s ON s.id = a.session_id
          JOIN exam_versions v ON v.id = s.exam_version_id
+         LEFT JOIN readiness_checks rc ON rc.id = a.last_check_id
         WHERE a.id = $1 AND a.candidate_id = $2 AND a.organisation_id = $3`,
       [id, auth.candidateId, auth.organisationId, config.packagePrefetchMinutes],
     );
@@ -137,7 +140,7 @@ export async function candidateAppRoutes(app: FastifyInstance, deps: AppDeps) {
     if (!row || row.status === 'revoked') throw notFound('Entitlement');
     if (row.candidate_status !== 'approved') throw conflict('Candidate is not approved');
     // The questions are in the package, so a browser must not get them for a desktop only exam.
-    enforceClient(req, examConfig.parse((row.manifest as { config?: unknown }).config ?? {}));
+    enforceClient(req, examConfig.parse((row.manifest as { config?: unknown }).config ?? {}), row.platform);
     if (['submitted', 'completed'].includes(row.status)) throw conflict('You have already submitted this exam');
     if (!['precheck_complete', 'active'].includes(row.status)) throw conflict('Complete the device check first');
     if (!['scheduled', 'open'].includes(row.session_status)) throw conflict(`Session is ${row.session_status}`);

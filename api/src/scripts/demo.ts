@@ -60,7 +60,7 @@ const exam = await call('POST', '/exams', owner, {
     security: { camera: true, microphone: true, violationPolicy: 'warn_then_submit', maxViolations: 3 },
     // Browsers report a storage quota, not free disk space, so keep this low for the demo.
     device: {
-      supportedOs: ['windows', 'macos', 'linux', 'chromeos'],
+      supportedOs: ['windows', 'macos', 'linux', 'chromeos', 'android', 'ios'],
       minFreeStorageMb: 100,
       // REQUIRE_DESKTOP_APP=1 makes a desktop only exam; ALLOW_VIRTUAL_MACHINES=1 lets it run in one.
       requireDesktopApp: process.env.REQUIRE_DESKTOP_APP === '1',

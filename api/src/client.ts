@@ -14,9 +14,23 @@ export function clientKind(req: FastifyRequest): ClientKind {
   return req.headers['x-examguard-client'] === 'desktop' ? 'desktop' : 'browser';
 }
 
-/** Refuses browsers for exams that require the desktop application. */
-export function enforceClient(req: FastifyRequest, config: ExamConfig): void {
-  if (config.device.requireDesktopApp && clientKind(req) !== 'desktop') {
-    throw conflict('This exam must be taken in the ExamGuard desktop application, not a browser');
-  }
+// Phones, tablets and Chromebooks cannot run the desktop application, so they
+// use the browser. Everything else (Windows, macOS, Linux and anything the
+// server does not recognise) is a computer and must use the application.
+const BROWSER_PLATFORMS: ReadonlySet<string> = new Set(['chromeos', 'android', 'ios']);
+
+export function browserAllowedOn(platform: string | null | undefined): boolean {
+  return platform != null && BROWSER_PLATFORMS.has(platform);
+}
+
+/**
+ * Keeps computers in the browser away from exams that require the desktop
+ * application. `platform` is what the candidate's last device check reported
+ * about the device; like the client kind it is the app's own claim, and proving
+ * it needs managed devices or signed builds.
+ */
+export function enforceClient(req: FastifyRequest, config: ExamConfig, platform: string | null | undefined): void {
+  if (!config.device.requireDesktopApp) return;
+  if (clientKind(req) === 'desktop' || browserAllowedOn(platform)) return;
+  throw conflict('This exam must be taken in the ExamGuard desktop application on a laptop or desktop computer');
 }

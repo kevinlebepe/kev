@@ -173,3 +173,9 @@ label input { margin-top: 0.35rem; font-weight: 400; }
 .rules { width: 100%; max-width: 640px; }
 .rules h2 { font-size: 1.05rem; color: var(--muted); font-weight: 500; }
 .rule-list { padding-left: 1.2rem; margin: 0 0 1rem; display: grid; gap: 0.5rem; }
+
+/* Desktop application hand over */
+.app-required { display: grid; gap: 0.5rem; justify-items: start; min-width: 220px; max-width: 320px; }
+.app-required p { margin: 0; }
+a.button { display: inline-block; text-decoration: none; text-align: center; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px; padding: 0.55rem 1rem; }
+a.button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }

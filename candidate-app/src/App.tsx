@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { request, resumeSession, signOut } from './lib/api';
+import { examFromSearch } from './lib/launch';
 import type { Entitlement } from './lib/types';
 import { currentBridge } from './device/bridge';
 import { Login } from './screens/Login';
@@ -18,12 +19,22 @@ export function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'starting' });
   const [items, setItems] = useState<Entitlement[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // An exam named in the address, for example when the desktop application was opened from a link.
+  const requestedExam = useRef<string | null>(examFromSearch(window.location.search));
 
   const load = useCallback(async () => {
     try {
       const data = await request<{ items: Entitlement[] }>('GET', '/me/entitlements');
       setItems(data.items);
       setError(null);
+      // Go straight to the exam the link named: its rules if the device is ready, otherwise its device check.
+      const wanted = requestedExam.current ? data.items.find((i) => i.id === requestedExam.current) : undefined;
+      if (wanted && ['assigned', 'precheck_complete', 'active'].includes(wanted.status)) {
+        requestedExam.current = null;
+        window.history.replaceState(null, '', window.location.pathname);
+        setScreen(wanted.status === 'assigned' ? { name: 'check', entitlement: wanted } : { name: 'exam', entitlement: wanted });
+        return;
+      }
       setScreen({ name: 'home' });
     } catch (err) {
       setError((err as Error).message);

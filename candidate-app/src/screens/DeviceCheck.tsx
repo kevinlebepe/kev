@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { request, serverTime } from '../lib/api';
+import { detectDevice } from '../lib/deviceType';
 import type { Entitlement, ReadinessCheck } from '../lib/types';
 import type { DeviceBridge } from '../device/bridge';
 
@@ -72,7 +73,9 @@ export function DeviceCheck({
 
       {bridge.kind === 'browser' && (
         <p className="muted small">
-          Running in a browser. These checks happen in the ExamGuard desktop application: {bridge.limitations.join(', ')}.
+          {detectDevice(navigator).kind === 'computer'
+            ? `Running in a browser. These checks happen in the ExamGuard desktop application: ${bridge.limitations.join(', ')}.`
+            : `Some checks, such as ${bridge.limitations.join(', ').toLowerCase()}, are not possible in a browser on this kind of device. Your organisation may lock this device down itself.`}
         </p>
       )}
 

@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFile, statfs } from 'node:fs/promises';
 import path from 'node:path';
 import { app, BrowserWindow, clipboard, ipcMain, Menu, screen, session, systemPreferences, type IpcMainInvokeEvent } from 'electron';
+import { findLaunchLink, launchTarget, parseLaunchLink, PROTOCOL } from './launch';
 import { ExamMode } from './lockdown';
 import { isAllowedNavigation, isAllowedPermission } from './navigation';
 import { blockedShortcut } from './shortcuts';
@@ -22,6 +23,33 @@ if (!app.isPackaged && process.env.EXAMGUARD_FAKE_MEDIA === '1') {
 
 let win: BrowserWindow | null = null;
 let exam: ExamMode | null = null;
+// A link that started the application (Windows and Linux pass it on the command line).
+let pendingLink: string | null = findLaunchLink(process.argv);
+
+function startUrl(): string {
+  return launchTarget(APP_URL, pendingLink ? parseLaunchLink(pendingLink) : null);
+}
+
+/** Opens the exam a link named. A running exam is never interrupted. */
+function openLaunchLink(raw: string): void {
+  const link = parseLaunchLink(raw);
+  if (!link) return;
+  if (!win) {
+    pendingLink = raw;
+    return;
+  }
+  if (exam?.isActive()) return;
+  void win.loadURL(launchTarget(APP_URL, link)).catch(() => undefined);
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+// macOS delivers links here, possibly before the application is ready.
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  openLaunchLink(url);
+});
 
 function send(channel: string, ...args: unknown[]): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, ...args);
@@ -62,7 +90,8 @@ function offlinePage(message: string): string {
 async function loadApp(): Promise<void> {
   if (!win || win.isDestroyed()) return;
   try {
-    await win.loadURL(APP_URL);
+    await win.loadURL(startUrl());
+    pendingLink = null;
   } catch {
     // Cannot reach the server yet: say so and keep trying.
     await win.loadURL(offlinePage(`Cannot reach ExamGuard at ${APP_URL}. Trying again…`)).catch(() => undefined);
@@ -165,8 +194,10 @@ app.on('web-contents-created', (_event, contents) => {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (win) {
+  app.on('second-instance', (_event, argv) => {
+    const link = findLaunchLink(argv);
+    if (link) openLaunchLink(link);
+    else if (win) {
       if (win.isMinimized()) win.restore();
       win.focus();
     }
@@ -174,6 +205,13 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     Menu.setApplicationMenu(normalMenu());
+
+    // Let links in the browser open this application. Only installed builds
+    // claim the link type, so running from source does not change the computer's settings.
+    if (app.isPackaged) app.setAsDefaultProtocolClient(PROTOCOL);
+    else if (process.env.EXAMGUARD_REGISTER_PROTOCOL === '1' && process.argv[1]) {
+      app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
+    }
 
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
       if (!isAllowedPermission(permission, details.requestingUrl || webContents.getURL(), APP_ORIGIN)) return callback(false);

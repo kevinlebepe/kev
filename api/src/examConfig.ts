@@ -64,13 +64,15 @@ export const examConfig = z.object({
   // Device requirements checked by the pre-exam readiness check (spec section 10).
   device: z
     .object({
-      supportedOs: z.array(z.enum(['windows', 'macos', 'linux', 'chromeos'])).min(1).default(['windows', 'macos']),
+      supportedOs: z.array(z.enum(['windows', 'macos', 'linux', 'chromeos', 'android', 'ios'])).min(1).default(['windows', 'macos']),
       minAppVersion: z.string().regex(/^\d+\.\d+\.\d+$/).optional(),
       minFreeStorageMb: z.number().int().min(0).max(1_000_000).default(2048),
       allowExternalMonitors: z.boolean().default(false),
       allowVirtualMachines: z.boolean().default(false),
-      // The exam can only be taken in the ExamGuard desktop application, which
-      // can lock the computer down in ways a browser cannot.
+      // On a laptop or desktop computer the exam can only be taken in the
+      // ExamGuard desktop application, which can lock the computer down in ways
+      // a browser cannot. Phones, tablets and Chromebooks cannot run it and use
+      // the browser, so the organisation's own device management must lock those.
       requireDesktopApp: z.boolean().default(false),
     })
     .default({

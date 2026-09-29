@@ -6,6 +6,7 @@ import { canonicalJson, signManifest, verifyManifest } from '../src/signing.js';
 import { compareVersions, evaluateReadiness } from '../src/readiness.js';
 import { examConfig } from '../src/examConfig.js';
 import { markAttempt } from '../src/marking.js';
+import { browserAllowedOn } from '../src/client.js';
 import { COUNTED_EVENT_TYPES, decideAction, RULE_EVENT_TYPES, RULE_EVENTS } from '../src/rules.js';
 
 describe('allocate', () => {
@@ -136,6 +137,28 @@ describe('readiness evaluation', () => {
     const desktop = evaluateReadiness(config, { ...report, appKind: 'desktop' }, { identityVerified: true, serverTime: now });
     expect(desktop.checks.find((c) => c.key === 'desktop_app')).toMatchObject({ passed: true });
     expect(desktop.passed).toBe(true);
+  });
+
+  it('lets phones, tablets and Chromebooks use a browser for an exam that requires the application on computers', () => {
+    const config = examConfig.parse({ device: { requireDesktopApp: true, supportedOs: ['windows', 'macos', 'linux', 'chromeos', 'android', 'ios'] } });
+    for (const platform of ['ios', 'android', 'chromeos'] as const) {
+      const result = evaluateReadiness(config, { ...report, os: { platform, version: '17' } }, { identityVerified: true, serverTime: now });
+      expect(result.checks.find((c) => c.key === 'desktop_app'), platform).toMatchObject({ passed: true, message: 'A browser is allowed on this kind of device' });
+      expect(result.passed, platform).toBe(true);
+    }
+  });
+
+  it('keeps every kind of computer, and anything unrecognised, in the application', () => {
+    const config = examConfig.parse({ device: { requireDesktopApp: true, supportedOs: ['windows', 'macos', 'linux', 'chromeos', 'android', 'ios'] } });
+    for (const platform of ['windows', 'macos', 'linux', 'other'] as const) {
+      const result = evaluateReadiness(config, { ...report, os: { platform, version: '1' } }, { identityVerified: true, serverTime: now });
+      expect(result.checks.find((c) => c.key === 'desktop_app'), platform).toMatchObject({ passed: false });
+    }
+  });
+
+  it('knows which platforms may use a browser', () => {
+    expect(['ios', 'android', 'chromeos'].every(browserAllowedOn)).toBe(true);
+    for (const p of ['windows', 'macos', 'linux', 'other', 'freebsd', '', null, undefined]) expect(browserAllowedOn(p)).toBe(false);
   });
 
   it('does not ask a browser about the desktop application when the exam allows browsers', () => {
