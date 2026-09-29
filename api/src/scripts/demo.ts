@@ -1,5 +1,5 @@
 // Development only: fills a running local API with a demo organisation, an
-// approved candidate and an exam session starting in 5 minutes, so the
+// approved candidate and an exam session that is already open, so the
 // candidate app can be tried end to end. Run `npm run dev` first.
 
 const API = process.env.API_URL ?? 'http://localhost:3000';
@@ -54,7 +54,8 @@ const exam = await call('POST', '/exams', owner, {
   code: 'MATH101',
   name: 'Mathematics 101',
   config: {
-    timing: { durationMinutes: 120 },
+    // Generous start window so the demo stays usable for the whole session.
+    timing: { durationMinutes: 120, startWindowMinutes: 170 },
     security: { camera: true, microphone: true },
     // Browsers report a storage quota, not free disk space, so keep this low for the demo.
     device: { supportedOs: ['windows', 'macos', 'linux', 'chromeos'], minFreeStorageMb: 100 },
@@ -81,7 +82,7 @@ const version = await call('POST', `/exams/${exam.id}/publish`, owner);
 const session = await call('POST', '/sessions', owner, {
   examVersionId: version.id,
   name: 'Demo sitting',
-  startsAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+  startsAt: new Date(Date.now() - 60_000).toISOString(),
   endsAt: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
 });
 await call('POST', '/assignments', owner, { sessionId: session.id, candidateIds: [candidateId] });
@@ -94,5 +95,5 @@ Demo ready. Open http://localhost:5173 and sign in as the candidate:
   Password:                     ${PASSWORD}
 
 Organisation owner (for API calls): owner@${slug}.example / ${PASSWORD}
-The exam session starts in 5 minutes and runs for 3 hours.
+The exam session is open now and runs for 3 hours. The exam itself lasts 2 hours.
 `);

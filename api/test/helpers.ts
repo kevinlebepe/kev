@@ -148,3 +148,19 @@ export async function invigilator(h: Harness, org: TestOrg) {
   if (res.status !== 201) throw new Error(JSON.stringify(res.body));
   return { id: res.body.id as string, email };
 }
+
+export const minutesFromNow = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
+
+/** A device report that passes every check for the default exam config. */
+export const passingReport = () => ({
+  appVersion: '1.0.0',
+  os: { platform: 'windows', version: '11' },
+  camera: { detected: true },
+  microphone: { detected: true },
+  screenCapture: { ready: true },
+  storage: { freeMb: 10_000 },
+  displays: { count: 1 },
+  virtualMachine: { detected: false },
+  network: { tested: true, latencyMs: 40 },
+  clientTime: new Date().toISOString(),
+});

@@ -1,0 +1,398 @@
+import { createPublicKey } from 'node:crypto';
+import { describe, expect, it } from 'vitest';
+import { finalizeAttempt, finalizeExpiredAttempts, receiptPayload } from '../src/attempts.js';
+import { withTransaction } from '../src/db.js';
+import { verifyManifest } from '../src/signing.js';
+import {
+  approvedCandidate,
+  call,
+  createOrg,
+  login,
+  minutesFromNow,
+  passingReport,
+  session,
+  type TestOrg,
+  uniq,
+  useHarness,
+} from './helpers.js';
+
+const h = useHarness();
+
+interface Q {
+  id: string;
+  prompt: string;
+  options: Record<string, string>; // label -> option id
+}
+
+/** Five questions of different types, worth 2 + 3 + 1 + 1 + 4 = 11 marks. */
+async function buildExam(org: TestOrg) {
+  const make = async (body: object) => (await call(h, 'POST', '/questions', org.owner, body)).body.id as string;
+  const ids = [
+    await make({ type: 'mcq', prompt: 'What is 2 + 2?', options: [{ label: '3' }, { label: '4', isCorrect: true }, { label: '5' }] }),
+    await make({
+      type: 'multiple_response',
+      prompt: 'Pick the primes',
+      options: [{ label: '2', isCorrect: true }, { label: '3', isCorrect: true }, { label: '4' }],
+    }),
+    await make({ type: 'true_false', prompt: 'The sky is blue', options: [{ label: 'True', isCorrect: true }, { label: 'False' }] }),
+    await make({ type: 'short_answer', prompt: 'Capital of France?' }),
+    await make({ type: 'essay', prompt: 'Discuss.' }),
+  ];
+  const points = [2, 3, 1, 1, 4];
+  const exam = await call(h, 'POST', '/exams', org.owner, {
+    code: uniq('EX'),
+    name: 'Attempts exam',
+    config: { timing: { durationMinutes: 60 } },
+  });
+  await call(h, 'PUT', `/exams/${exam.body.id}/questions`, org.owner, {
+    items: ids.map((questionId, i) => ({ questionId, points: points[i] })),
+  });
+  const version = await call(h, 'POST', `/exams/${exam.body.id}/publish`, org.owner);
+  const pkg = await call(h, 'GET', `/exam-versions/${version.body.id}/package`, org.owner);
+  const questions: Q[] = pkg.body.manifest.questions.map((q: { id: string; prompt: string; options: { id: string; label: string }[] }) => ({
+    id: q.id,
+    prompt: q.prompt,
+    options: Object.fromEntries(q.options.map((o) => [o.label, o.id])),
+  }));
+  return { versionId: version.body.id as string, questions };
+}
+
+async function candidateReady(
+  org: TestOrg,
+  opts: { times?: { startsAt: string; endsAt: string }; precheck?: boolean; exam?: Awaited<ReturnType<typeof buildExam>> } = {},
+) {
+  const exam = opts.exam ?? (await buildExam(org));
+  const sessionId = await session(h, org, exam.versionId, opts.times ?? { startsAt: minutesFromNow(-1), endsAt: minutesFromNow(180) });
+  const name = uniq('cand');
+  const candidateId = await approvedCandidate(h, org, name);
+  await call(h, 'POST', '/assignments', org.owner, { sessionId, candidateIds: [candidateId] });
+  const { accessToken: token } = await login(h, org.slug, `${name}@${org.slug}.example`);
+  const assignmentId = (await call(h, 'GET', '/me/entitlements', token)).body.items[0].id as string;
+  if (opts.precheck !== false) {
+    const res = await call(h, 'POST', `/me/entitlements/${assignmentId}/precheck`, token, passingReport());
+    expect(res.body.passed).toBe(true);
+  }
+  return { ...exam, sessionId, candidateId, token, assignmentId };
+}
+
+async function started(org: TestOrg) {
+  const c = await candidateReady(org);
+  const res = await call(h, 'POST', '/attempts/start', c.token, { assignmentId: c.assignmentId });
+  expect(res.status).toBe(201);
+  return { ...c, attemptId: res.body.id as string, start: res.body };
+}
+
+const answer = (questionId: string, seq: number, response: object) => ({ questionId, seq, response });
+
+describe('starting an attempt', () => {
+  it('needs a passed device check', async () => {
+    const org = await createOrg(h);
+    const c = await candidateReady(org, { precheck: false });
+    const res = await call(h, 'POST', '/attempts/start', c.token, { assignmentId: c.assignmentId });
+    expect(res.status).toBe(409);
+    expect(res.body.error.message).toMatch(/device check/);
+  });
+
+  it('is refused before the session starts and after the start window closes', async () => {
+    const org = await createOrg(h);
+    const early = await candidateReady(org, { times: { startsAt: minutesFromNow(30), endsAt: minutesFromNow(200) } });
+    const tooEarly = await call(h, 'POST', '/attempts/start', early.token, { assignmentId: early.assignmentId });
+    expect(tooEarly.status).toBe(409);
+    expect(tooEarly.body.error.message).toMatch(/starts at/);
+
+    const late = await candidateReady(org, { times: { startsAt: minutesFromNow(-60), endsAt: minutesFromNow(120) } });
+    const tooLate = await call(h, 'POST', '/attempts/start', late.token, { assignmentId: late.assignmentId });
+    expect(tooLate.status).toBe(409);
+    expect(tooLate.body.error.message).toMatch(/start window/);
+  });
+
+  it('sets a server side deadline and resumes instead of starting twice', async () => {
+    const org = await createOrg(h);
+    const c = await candidateReady(org);
+    const first = await call(h, 'POST', '/attempts/start', c.token, { assignmentId: c.assignmentId });
+    expect(first.status).toBe(201);
+    expect(first.body.resumed).toBe(false);
+    const minutes = (Date.parse(first.body.deadlineAt) - Date.parse(first.body.startedAt)) / 60_000;
+    expect(minutes).toBeCloseTo(60, 1);
+    expect(Math.abs(Date.parse(first.body.serverTime) - Date.now())).toBeLessThan(5_000);
+
+    const again = await call(h, 'POST', '/attempts/start', c.token, { assignmentId: c.assignmentId });
+    expect(again.status).toBe(200);
+    expect(again.body).toMatchObject({ id: first.body.id, resumed: true, deadlineAt: first.body.deadlineAt });
+
+    const { rows } = await h.db.query('SELECT status FROM exam_assignments WHERE id = $1', [c.assignmentId]);
+    expect(rows[0].status).toBe('active');
+  });
+
+  it('caps the deadline at the end of the session', async () => {
+    const org = await createOrg(h);
+    const c = await candidateReady(org, { times: { startsAt: minutesFromNow(-1), endsAt: minutesFromNow(20) } });
+    const res = await call(h, 'POST', '/attempts/start', c.token, { assignmentId: c.assignmentId });
+    expect((Date.parse(res.body.deadlineAt) - Date.now()) / 60_000).toBeLessThan(20.1);
+  });
+
+  it('is private to the candidate who owns the entitlement', async () => {
+    const org = await createOrg(h);
+    const a = await started(org);
+    const b = await candidateReady(org, { exam: { versionId: a.versionId, questions: a.questions } });
+    expect((await call(h, 'GET', `/attempts/${a.attemptId}`, b.token)).status).toBe(404);
+    expect((await call(h, 'POST', '/attempts/start', b.token, { assignmentId: a.assignmentId })).status).toBe(404);
+    expect((await call(h, 'GET', `/attempts/${a.attemptId}`, org.owner)).status).toBe(403);
+
+    const other = await createOrg(h);
+    expect((await call(h, 'GET', `/attempts/${a.attemptId}`, other.owner)).status).toBe(403);
+  });
+});
+
+describe('saving answers', () => {
+  it('stores answers, returns them on resume, and never exposes the answer key', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    const [q1, , , q4] = c.questions as [Q, Q, Q, Q, Q];
+    const saved = await call(h, 'PATCH', `/attempts/${c.attemptId}/state`, c.token, {
+      answers: [answer(q1.id, 1, { optionId: q1.options['4'] }), answer(q4.id, 2, { text: 'Paris' })],
+      position: 3,
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.body.acked).toEqual(expect.arrayContaining([{ questionId: q1.id, seq: 1 }, { questionId: q4.id, seq: 2 }]));
+
+    const resumed = await call(h, 'POST', '/attempts/start', c.token, { assignmentId: c.assignmentId });
+    expect(resumed.body.position).toBe(3);
+    expect(resumed.body.answers).toHaveLength(2);
+    expect(JSON.stringify(resumed.body)).not.toMatch(/score|isCorrect|correct/i);
+  });
+
+  it('keeps the newest answer whatever order requests arrive in', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    const q1 = c.questions[0]!;
+    const url = `/attempts/${c.attemptId}/state`;
+    await call(h, 'PATCH', url, c.token, { answers: [answer(q1.id, 5, { optionId: q1.options['4'] })] });
+    // A delayed older request arrives afterwards.
+    const stale = await call(h, 'PATCH', url, c.token, { answers: [answer(q1.id, 3, { optionId: q1.options['3'] })] });
+    expect(stale.body.acked).toEqual([{ questionId: q1.id, seq: 5 }]);
+    // Replaying the same request changes nothing.
+    await call(h, 'PATCH', url, c.token, { answers: [answer(q1.id, 5, { optionId: q1.options['4'] })] });
+    // Within one batch the highest seq wins regardless of position.
+    const batch = await call(h, 'PATCH', url, c.token, {
+      answers: [answer(q1.id, 9, { optionId: q1.options['5'] }), answer(q1.id, 7, { optionId: q1.options['3'] })],
+    });
+    expect(batch.body.acked).toEqual([{ questionId: q1.id, seq: 9 }]);
+
+    const view = await call(h, 'GET', `/attempts/${c.attemptId}`, c.token);
+    expect(view.body.answers).toEqual([{ questionId: q1.id, seq: 9, response: { optionId: q1.options['5'] } }]);
+  });
+
+  it('rejects answers that do not fit the question', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    const [q1, q2, , q4] = c.questions as [Q, Q, Q, Q, Q];
+    const url = `/attempts/${c.attemptId}/state`;
+    const bad = async (a: object) => (await call(h, 'PATCH', url, c.token, { answers: [a] })).status;
+
+    expect(await bad(answer(q1.id, 1, { optionId: '00000000-0000-4000-8000-000000000000' }))).toBe(400); // unknown option
+    expect(await bad(answer(q1.id, 1, { text: 'four' }))).toBe(400); // wrong shape for mcq
+    expect(await bad(answer(q2.id, 1, { optionIds: [q2.options['2'], q2.options['2']] }))).toBe(400); // repeated option
+    expect(await bad(answer(q4.id, 1, { text: 'x'.repeat(2001) }))).toBe(400); // too long
+    expect(await bad(answer('00000000-0000-4000-8000-000000000000', 1, { text: 'x' }))).toBe(400); // not in this exam
+    expect(await bad(answer(q1.id, 0, { optionId: q1.options['4'] }))).toBe(400); // seq must be positive
+    expect(await bad({ questionId: q1.id, seq: 1, response: { optionId: q1.options['4'], extra: true } })).toBe(400); // unknown field
+
+    const view = await call(h, 'GET', `/attempts/${c.attemptId}`, c.token);
+    expect(view.body.answers).toEqual([]);
+  });
+
+  it('rejects the whole batch when one answer is invalid, saving nothing', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    const [q1, , , q4] = c.questions as [Q, Q, Q, Q, Q];
+    const res = await call(h, 'PATCH', `/attempts/${c.attemptId}/state`, c.token, {
+      answers: [answer(q1.id, 1, { optionId: q1.options['4'] }), answer(q4.id, 2, { optionId: q1.options['4'] })],
+    });
+    expect(res.status).toBe(400);
+    expect((await call(h, 'GET', `/attempts/${c.attemptId}`, c.token)).body.answers).toEqual([]);
+  });
+});
+
+describe('the deadline', () => {
+  it('still accepts a save just after the deadline, inside the grace period', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    await h.db.query(`UPDATE attempts SET deadline_at = now() - interval '5 seconds' WHERE id = $1`, [c.attemptId]);
+    const res = await call(h, 'PATCH', `/attempts/${c.attemptId}/state`, c.token, {
+      answers: [answer(c.questions[0]!.id, 1, { optionId: c.questions[0]!.options['4'] })],
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it('closes the attempt when a save arrives after the grace period', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    const q1 = c.questions[0]!;
+    await call(h, 'PATCH', `/attempts/${c.attemptId}/state`, c.token, { answers: [answer(q1.id, 1, { optionId: q1.options['4'] })] });
+    await h.db.query(`UPDATE attempts SET deadline_at = now() - interval '2 minutes' WHERE id = $1`, [c.attemptId]);
+
+    const late = await call(h, 'PATCH', `/attempts/${c.attemptId}/state`, c.token, {
+      answers: [answer(q1.id, 2, { optionId: q1.options['3'] })],
+    });
+    expect(late.status).toBe(409);
+    expect(late.body.error.details.receipt).toMatchObject({ submittedBy: 'timer', answered: 1 });
+
+    // The late change was not applied: the saved answer is what gets marked.
+    const { rows } = await h.db.query(`SELECT score::float AS score FROM results WHERE attempt_id = $1`, [c.attemptId]);
+    expect(rows[0].score).toBe(2);
+  });
+
+  it('submits overdue attempts in the background, leaving healthy ones alone', async () => {
+    const org = await createOrg(h);
+    const overdue = await started(org);
+    const healthy = await started(org);
+    await h.db.query(`UPDATE attempts SET deadline_at = now() - interval '2 minutes' WHERE id = $1`, [overdue.attemptId]);
+
+    expect(await finalizeExpiredAttempts(h.db, h.config)).toBeGreaterThanOrEqual(1);
+    expect(await finalizeExpiredAttempts(h.db, h.config)).toBe(0); // nothing left to do
+
+    const view = await call(h, 'GET', `/attempts/${overdue.attemptId}`, overdue.token);
+    expect(view.body).toMatchObject({ status: 'submitted', receipt: { submittedBy: 'timer' } });
+    expect((await call(h, 'GET', `/attempts/${healthy.attemptId}`, healthy.token)).body.status).toBe('active');
+
+    const { rows } = await h.db.query(`SELECT type FROM events WHERE attempt_id = $1 ORDER BY occurred_at`, [overdue.attemptId]);
+    expect(rows.map((r) => r.type)).toEqual(['attempt_started', 'attempt_auto_submitted']);
+  });
+
+  it('closes an expired attempt when the candidate comes back to it', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    await h.db.query(`UPDATE attempts SET deadline_at = now() - interval '2 minutes' WHERE id = $1`, [c.attemptId]);
+    const res = await call(h, 'POST', '/attempts/start', c.token, { assignmentId: c.assignmentId });
+    expect(res.body).toMatchObject({ status: 'submitted', resumed: true, receipt: { submittedBy: 'timer' } });
+  });
+});
+
+describe('submitting', () => {
+  it('marks what it can, keeps free text for a human, and hides the score from the candidate', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    const [q1, q2, q3, q4, q5] = c.questions as [Q, Q, Q, Q, Q];
+    const res = await call(h, 'POST', `/attempts/${c.attemptId}/submit`, c.token, {
+      answers: [
+        answer(q1.id, 1, { optionId: q1.options['4'] }), // correct: 2
+        answer(q2.id, 2, { optionIds: [q2.options['2'], q2.options['3']] }), // correct: 3
+        answer(q3.id, 3, { optionId: q3.options['False'] }), // wrong: 0
+        answer(q4.id, 4, { text: 'Paris' }), // manual
+        answer(q5.id, 5, { text: 'An essay.' }), // manual
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.receipt).toMatchObject({ submittedBy: 'candidate', answered: 5, total: 5 });
+
+    const { rows } = await h.db.query(`SELECT score::float AS score, max_score::float AS max, status FROM results WHERE attempt_id = $1`, [c.attemptId]);
+    expect(rows[0]).toEqual({ score: 5, max: 11, status: 'pending' });
+
+    const view = await call(h, 'GET', `/attempts/${c.attemptId}`, c.token);
+    expect(view.body.status).toBe('submitted');
+    expect(JSON.stringify(view.body)).not.toMatch(/score|max_score/i);
+
+    // The organisation can see it.
+    const list = await call(h, 'GET', `/sessions/${c.sessionId}/attempts`, org.owner);
+    expect(list.body.items[0]).toMatchObject({ status: 'submitted', score: 5, maxScore: 11, markingStatus: 'pending', submittedBy: 'candidate' });
+    expect((await call(h, 'GET', `/sessions/${c.sessionId}/attempts`, c.token)).status).toBe(403);
+  });
+
+  it('treats all or nothing for multiple response and marks fully automatic exams as done', async () => {
+    const org = await createOrg(h);
+    const exam = await (async () => {
+      const q = await call(h, 'POST', '/questions', org.owner, {
+        type: 'multiple_response',
+        prompt: 'Pick the primes',
+        options: [{ label: '2', isCorrect: true }, { label: '3', isCorrect: true }, { label: '4' }],
+      });
+      const e = await call(h, 'POST', '/exams', org.owner, { code: uniq('EX'), name: 'Auto', config: { timing: { durationMinutes: 30 } } });
+      await call(h, 'PUT', `/exams/${e.body.id}/questions`, org.owner, { items: [{ questionId: q.body.id, points: 2 }] });
+      const v = await call(h, 'POST', `/exams/${e.body.id}/publish`, org.owner);
+      const pkg = await call(h, 'GET', `/exam-versions/${v.body.id}/package`, org.owner);
+      const mq = pkg.body.manifest.questions[0];
+      return {
+        versionId: v.body.id as string,
+        questions: [{ id: mq.id as string, prompt: mq.prompt as string, options: Object.fromEntries(mq.options.map((o: { id: string; label: string }) => [o.label, o.id])) }],
+      };
+    })();
+    const c = await candidateReady(org, { exam });
+    const attempt = await call(h, 'POST', '/attempts/start', c.token, { assignmentId: c.assignmentId });
+    const q = c.questions[0]!;
+    // Only one of the two correct options: no credit.
+    await call(h, 'POST', `/attempts/${attempt.body.id}/submit`, c.token, { answers: [answer(q.id, 1, { optionIds: [q.options['2']] })] });
+    const { rows } = await h.db.query(`SELECT score::float AS score, status FROM results WHERE attempt_id = $1`, [attempt.body.id]);
+    expect(rows[0]).toEqual({ score: 0, status: 'marked' });
+  });
+
+  it('gives the same receipt however many times, or how concurrently, it is submitted', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    const q1 = c.questions[0]!;
+    const body = { answers: [answer(q1.id, 1, { optionId: q1.options['4'] })] };
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => call(h, 'POST', `/attempts/${c.attemptId}/submit`, c.token, body)),
+    );
+    expect(results.map((r) => r.status)).toEqual([200, 200, 200, 200, 200]);
+    expect(new Set(results.map((r) => r.body.receipt.receiptId)).size).toBe(1);
+
+    const { rows } = await h.db.query(`SELECT count(*)::int AS n FROM submissions WHERE attempt_id = $1`, [c.attemptId]);
+    expect(rows[0].n).toBe(1);
+    const { rows: res } = await h.db.query(`SELECT count(*)::int AS n FROM results WHERE attempt_id = $1`, [c.attemptId]);
+    expect(res[0].n).toBe(1);
+  });
+
+  it('finalising twice returns the original receipt and writes nothing new', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    const first = await withTransaction(h.db, (tx) => finalizeAttempt(tx, h.config, c.attemptId, 'candidate', { userId: null }));
+    const second = await withTransaction(h.db, (tx) => finalizeAttempt(tx, h.config, c.attemptId, 'timer', { userId: null }));
+    expect(second).toEqual(first);
+    expect(second.submittedBy).toBe('candidate');
+    for (const table of ['submissions', 'results']) {
+      const { rows } = await h.db.query(`SELECT count(*)::int AS n FROM ${table} WHERE attempt_id = $1`, [c.attemptId]);
+      expect(rows[0].n).toBe(1);
+    }
+  });
+
+  it('issues a receipt the candidate can verify, bound to exactly what was submitted', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    const q1 = c.questions[0]!;
+    const res = await call(h, 'POST', `/attempts/${c.attemptId}/submit`, c.token, { answers: [answer(q1.id, 1, { optionId: q1.options['4'] })] });
+    const { signature, ...fields } = res.body.receipt;
+    const key = createPublicKey((await call(h, 'GET', '/exam-signing-key')).body.publicKeyPem);
+    expect(verifyManifest(receiptPayload(fields), signature, key)).toBe(true);
+    expect(verifyManifest(receiptPayload({ ...fields, answered: 99 }), signature, key)).toBe(false);
+
+    // A retry returns exactly the same receipt as the first response.
+    const retry = await call(h, 'POST', `/attempts/${c.attemptId}/submit`, c.token, {});
+    expect(retry.body.receipt).toEqual(res.body.receipt);
+    expect(res.body.receipt.packageSha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('accepts nothing further once submitted, and blocks re-entry', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    const q1 = c.questions[0]!;
+    await call(h, 'POST', `/attempts/${c.attemptId}/submit`, c.token, {});
+
+    const save = await call(h, 'PATCH', `/attempts/${c.attemptId}/state`, c.token, { answers: [answer(q1.id, 1, { optionId: q1.options['4'] })] });
+    expect(save.status).toBe(409);
+    expect((await call(h, 'GET', `/attempts/${c.attemptId}`, c.token)).body.answers).toEqual([]);
+
+    const entitlements = await call(h, 'GET', '/me/entitlements', c.token);
+    expect(entitlements.body.items[0].status).toBe('submitted');
+    expect((await call(h, 'GET', `/me/entitlements/${c.assignmentId}/package`, c.token)).status).toBe(409);
+  });
+
+  it('records the attempt in the audit trail', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    await call(h, 'POST', `/attempts/${c.attemptId}/submit`, c.token, {});
+    const log = await call(h, 'GET', '/audit?limit=100', org.owner);
+    const actions = log.body.items.map((e: { action: string }) => e.action);
+    expect(actions).toEqual(expect.arrayContaining(['attempt.start', 'attempt.submit']));
+  });
+});

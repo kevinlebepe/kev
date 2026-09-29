@@ -5,6 +5,7 @@ import { selfRegistrationOutcome, transition } from '../src/candidateStatus.js';
 import { canonicalJson, signManifest, verifyManifest } from '../src/signing.js';
 import { compareVersions, evaluateReadiness } from '../src/readiness.js';
 import { examConfig } from '../src/examConfig.js';
+import { markAttempt } from '../src/marking.js';
 
 describe('allocate', () => {
   const ids = (n: number, p = 'c') => Array.from({ length: n }, (_, i) => `${p}${String(i).padStart(3, '0')}`);
@@ -127,5 +128,41 @@ describe('readiness evaluation', () => {
   it('compares versions numerically', () => {
     expect(compareVersions('1.10.0', '1.9.9')).toBe(1);
     expect(compareVersions('2.0.0', '2.0.0')).toBe(0);
+  });
+});
+
+describe('marking', () => {
+  const questions = [
+    { id: 'a', type: 'mcq' },
+    { id: 'b', type: 'multiple_response' },
+    { id: 'c', type: 'true_false' },
+    { id: 'd', type: 'essay' },
+  ];
+  const key = {
+    a: { points: 2, correctOptionIds: ['a2'] },
+    b: { points: 3, correctOptionIds: ['b1', 'b2'] },
+    c: { points: 1, correctOptionIds: ['c1'] },
+    d: { points: 4, correctOptionIds: [] },
+  };
+  const mark = (answers: Record<string, object>) => markAttempt(questions, key, new Map(Object.entries(answers)));
+
+  it('scores each automatic type and leaves free text for a human', () => {
+    expect(mark({ a: { optionId: 'a2' }, b: { optionIds: ['b2', 'b1'] }, c: { optionId: 'c1' }, d: { text: 'x' } })).toEqual({
+      score: 6,
+      maxScore: 10,
+      needsManual: 1,
+      status: 'pending',
+    });
+  });
+
+  it('gives no credit for wrong, partial or missing answers', () => {
+    expect(mark({ a: { optionId: 'a1' }, b: { optionIds: ['b1'] } }).score).toBe(0);
+    expect(mark({ b: { optionIds: ['b1', 'b2', 'b3'] } }).score).toBe(0);
+    expect(mark({}).score).toBe(0);
+  });
+
+  it('is complete when every question is automatic', () => {
+    const result = markAttempt([questions[0]!], key, new Map([['a', { optionId: 'a2' }]]));
+    expect(result).toMatchObject({ score: 2, maxScore: 2, needsManual: 0, status: 'marked' });
   });
 });

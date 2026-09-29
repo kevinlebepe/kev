@@ -56,6 +56,8 @@ export interface Config {
   publicBaseUrl: string;
   /** How long before a session starts a candidate may download the exam package. */
   packagePrefetchMinutes: number;
+  /** Extra time after the deadline in which a final save or submit is still accepted (network delay). */
+  attemptGraceSeconds: number;
   examSigning: { privateKey: KeyObject; publicKey: KeyObject; keyId: string };
 }
 
@@ -71,6 +73,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     authRateLimitPerMinute: Number(process.env.AUTH_RATE_LIMIT_PER_MINUTE ?? 20),
     publicBaseUrl: process.env.PUBLIC_BASE_URL ?? 'http://localhost:5173',
     packagePrefetchMinutes: Number(process.env.PACKAGE_PREFETCH_MINUTES ?? 10),
+    attemptGraceSeconds: Number(process.env.ATTEMPT_GRACE_SECONDS ?? 30),
     examSigning: loadSigningKey(),
     ...overrides,
   };
