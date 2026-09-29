@@ -69,8 +69,17 @@ export const examConfig = z.object({
       minFreeStorageMb: z.number().int().min(0).max(1_000_000).default(2048),
       allowExternalMonitors: z.boolean().default(false),
       allowVirtualMachines: z.boolean().default(false),
+      // The exam can only be taken in the ExamGuard desktop application, which
+      // can lock the computer down in ways a browser cannot.
+      requireDesktopApp: z.boolean().default(false),
     })
-    .default({ supportedOs: ['windows', 'macos'], minFreeStorageMb: 2048, allowExternalMonitors: false, allowVirtualMachines: false }),
+    .default({
+      supportedOs: ['windows', 'macos'],
+      minFreeStorageMb: 2048,
+      allowExternalMonitors: false,
+      allowVirtualMachines: false,
+      requireDesktopApp: false,
+    }),
 });
 
 export type ExamConfig = z.infer<typeof examConfig>;

@@ -1,4 +1,6 @@
 import { createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 function required(name: string, fallback?: string): string {
   const value = process.env[name] ?? fallback;
@@ -25,8 +27,34 @@ function loadSigningKey(): { privateKey: KeyObject; publicKey: KeyObject; keyId:
   if (isProduction) {
     throw new Error('Missing required environment variable EXAM_SIGNING_PRIVATE_KEY');
   }
-  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
-  return { privateKey, publicKey, keyId: 'dev-ephemeral' };
+  const privateKey = persistentDevKey();
+  return { privateKey, publicKey: createPublicKey(privateKey), keyId: 'dev-local' };
+}
+
+// A key made fresh on every start would make every exam published before a
+// restart fail its signature check, which is confusing during development.
+// So development keeps one key in a file that is never committed. Production
+// refuses to start without a real key from the secret store.
+function persistentDevKey(): KeyObject {
+  const file = fileURLToPath(new URL('../.dev-signing-key.pem', import.meta.url));
+  const read = () => createPrivateKey(readFileSync(file));
+  try {
+    return read();
+  } catch {
+    // No key yet: make one.
+  }
+  const { privateKey } = generateKeyPairSync('ed25519');
+  try {
+    // 'wx' fails if another process created it first, and then we use theirs.
+    writeFileSync(file, privateKey.export({ type: 'pkcs8', format: 'pem' }), { flag: 'wx', mode: 0o600 });
+  } catch {
+    // Someone else won, or the folder is read only.
+  }
+  try {
+    return read();
+  } catch {
+    return privateKey;
+  }
 }
 
 /**

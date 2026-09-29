@@ -1,12 +1,12 @@
 import { createPublicKey } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { verifyManifest } from '../src/signing.js';
-import type { ReadinessReport } from '../src/readiness.js';
+import type { ReadinessReportInput } from '../src/readiness.js';
 import { approvedCandidate, call, createOrg, login, publishedExam, session, type TestOrg, uniq, useHarness } from './helpers.js';
 
 const h = useHarness();
 
-const goodReport = (overrides: Partial<ReadinessReport> = {}): ReadinessReport => ({
+const goodReport = (overrides: Partial<ReadinessReportInput> = {}): ReadinessReportInput => ({
   appVersion: '1.0.0',
   os: { platform: 'windows', version: '11' },
   camera: { detected: true },

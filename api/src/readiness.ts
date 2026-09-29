@@ -14,9 +14,15 @@ export const readinessReport = z.object({
   virtualMachine: z.object({ detected: z.boolean() }),
   network: z.object({ tested: z.boolean(), latencyMs: z.number().min(0).optional() }),
   clientTime: z.iso.datetime({ offset: true }),
+  // Only the desktop application can look for these; a browser reports the defaults.
+  appKind: z.enum(['browser', 'desktop']).default('browser'),
+  /** Screen sharing and remote control programs found running. */
+  restrictedApps: z.array(z.string().max(100)).max(50).default([]),
 });
 
 export type ReadinessReport = z.infer<typeof readinessReport>;
+/** What a client may send: the fields with defaults can be left out. */
+export type ReadinessReportInput = z.input<typeof readinessReport>;
 
 export interface ReadinessCheck {
   key: string;
@@ -57,6 +63,15 @@ export function evaluateReadiness(
     `Update the application to version ${device.minAppVersion} or later`,
   );
 
+  if (device.requireDesktopApp) {
+    check(
+      'desktop_app',
+      report.appKind === 'desktop',
+      'Running in the ExamGuard desktop application',
+      'This exam must be taken in the ExamGuard desktop application, not a browser',
+    );
+  }
+
   check(
     'os',
     (device.supportedOs as string[]).includes(report.os.platform),
@@ -86,9 +101,20 @@ export function evaluateReadiness(
   check(
     'virtual_machine',
     device.allowVirtualMachines || !report.virtualMachine.detected,
-    'No virtual machine detected',
+    // Do not claim there is none when one was found and the exam simply allows it.
+    report.virtualMachine.detected ? 'Virtual machine detected (allowed for this exam)' : 'No virtual machine detected',
     'This exam cannot be taken inside a virtual machine',
   );
+
+  // Only the desktop application can see other programs, so a browser is not failed for lacking this.
+  if (report.appKind === 'desktop') {
+    check(
+      'restricted_apps',
+      report.restrictedApps.length === 0,
+      'No screen sharing or remote control programs running',
+      `Close these programs and run the check again: ${report.restrictedApps.join(', ')}`,
+    );
+  }
 
   const driftSeconds = Math.abs(new Date(report.clientTime).getTime() - context.serverTime.getTime()) / 1000;
   check(

@@ -102,6 +102,8 @@ describe('readiness evaluation', () => {
     virtualMachine: { detected: false },
     network: { tested: false },
     clientTime: now.toISOString(),
+    appKind: 'browser' as const,
+    restrictedApps: [] as string[],
   };
 
   it('only checks devices the exam actually uses', () => {
@@ -124,6 +126,51 @@ describe('readiness evaluation', () => {
     expect(result.checks.filter((c) => !c.passed).map((c) => c.key).sort()).toEqual(
       ['app_version', 'camera', 'displays', 'identity', 'microphone', 'network', 'os', 'screen_capture', 'storage', 'virtual_machine'],
     );
+  });
+
+  it('fails a browser for an exam that needs the desktop application, and passes the desktop app', () => {
+    const config = examConfig.parse({ device: { requireDesktopApp: true } });
+    const browser = evaluateReadiness(config, report, { identityVerified: true, serverTime: now });
+    expect(browser.checks.find((c) => c.key === 'desktop_app')).toMatchObject({ passed: false });
+    expect(browser.passed).toBe(false);
+    const desktop = evaluateReadiness(config, { ...report, appKind: 'desktop' }, { identityVerified: true, serverTime: now });
+    expect(desktop.checks.find((c) => c.key === 'desktop_app')).toMatchObject({ passed: true });
+    expect(desktop.passed).toBe(true);
+  });
+
+  it('does not ask a browser about the desktop application when the exam allows browsers', () => {
+    const result = evaluateReadiness(examConfig.parse({}), report, { identityVerified: true, serverTime: now });
+    expect(result.checks.map((c) => c.key)).not.toContain('desktop_app');
+    expect(result.checks.map((c) => c.key)).not.toContain('restricted_apps');
+  });
+
+  it('fails the desktop application while screen sharing or remote control programs are running', () => {
+    const config = examConfig.parse({});
+    const result = evaluateReadiness(
+      config,
+      { ...report, appKind: 'desktop', restrictedApps: ['TeamViewer', 'AnyDesk'] },
+      { identityVerified: true, serverTime: now },
+    );
+    expect(result.checks.find((c) => c.key === 'restricted_apps')).toMatchObject({
+      passed: false,
+      message: expect.stringContaining('TeamViewer, AnyDesk'),
+    });
+    const clean = evaluateReadiness(config, { ...report, appKind: 'desktop' }, { identityVerified: true, serverTime: now });
+    expect(clean.checks.find((c) => c.key === 'restricted_apps')).toMatchObject({ passed: true });
+  });
+
+  it('says so plainly when a virtual machine is found but the exam allows one', () => {
+    const inVm = { ...report, virtualMachine: { detected: true } };
+    const allowed = evaluateReadiness(examConfig.parse({ device: { allowVirtualMachines: true } }), inVm, { identityVerified: true, serverTime: now });
+    expect(allowed.checks.find((c) => c.key === 'virtual_machine')).toEqual({
+      key: 'virtual_machine',
+      passed: true,
+      message: 'Virtual machine detected (allowed for this exam)',
+    });
+    const refused = evaluateReadiness(examConfig.parse({}), inVm, { identityVerified: true, serverTime: now });
+    expect(refused.checks.find((c) => c.key === 'virtual_machine')).toMatchObject({ passed: false, message: expect.stringContaining('cannot be taken inside') });
+    const none = evaluateReadiness(examConfig.parse({}), report, { identityVerified: true, serverTime: now });
+    expect(none.checks.find((c) => c.key === 'virtual_machine')).toMatchObject({ passed: true, message: 'No virtual machine detected' });
   });
 
   it('compares versions numerically', () => {
@@ -189,7 +236,7 @@ describe('exam rule decisions', () => {
   });
 
   it('counts leaving the exam, not blocked clipboard attempts', () => {
-    expect([...COUNTED_EVENT_TYPES].sort()).toEqual(['close_attempt', 'left_fullscreen', 'left_window']);
+    expect([...COUNTED_EVENT_TYPES].sort()).toEqual(['close_attempt', 'display_added', 'left_fullscreen', 'left_window']);
     for (const type of RULE_EVENT_TYPES) expect(RULE_EVENTS[type]).toBeDefined();
   });
 });

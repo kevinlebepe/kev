@@ -6,6 +6,7 @@ import { badRequest, conflict, notFound } from '../errors.js';
 import { authorize, requireCandidate, requireOrg } from '../auth/context.js';
 import { audit, auditFrom } from '../audit.js';
 import { examConfig } from '../examConfig.js';
+import { enforceClient } from '../client.js';
 import { existingReceipt, finalizeAttempt, type Receipt } from '../attempts.js';
 import { COUNTED_EVENT_TYPES, decideAction, RULE_EVENT_TYPES, RULE_EVENTS } from '../rules.js';
 import { idParams, page, pagination, parse } from '../validation.js';
@@ -244,7 +245,9 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
       if (row.before_start) throw conflict(`The exam starts at ${row.starts_at.toISOString()}`);
       if (row.after_end || row.after_window) throw conflict('The start window for this exam has closed; contact exam support');
 
-      const duration = examConfig.parse(row.config ?? {}).timing.durationMinutes;
+      const parsed = examConfig.parse(row.config ?? {});
+      enforceClient(req, parsed);
+      const duration = parsed.timing.durationMinutes;
       if (!duration) throw conflict('This exam has no duration configured');
 
       const { rows: created } = await tx.query<{ id: string }>(

@@ -36,11 +36,12 @@ export async function call(
   url: string,
   token?: string | null,
   body?: unknown,
+  headers: Record<string, string> = {},
 ) {
   const res = await h.app.inject({
     method,
     url,
-    headers: token ? { authorization: `Bearer ${token}` } : {},
+    headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers },
     ...(body === undefined ? {} : { payload: body as object }),
   });
   return { status: res.statusCode, body: res.body ? res.json() : undefined };

@@ -59,7 +59,13 @@ const exam = await call('POST', '/exams', owner, {
     // Leaving the exam is warned about three times; the fourth ends it.
     security: { camera: true, microphone: true, violationPolicy: 'warn_then_submit', maxViolations: 3 },
     // Browsers report a storage quota, not free disk space, so keep this low for the demo.
-    device: { supportedOs: ['windows', 'macos', 'linux', 'chromeos'], minFreeStorageMb: 100 },
+    device: {
+      supportedOs: ['windows', 'macos', 'linux', 'chromeos'],
+      minFreeStorageMb: 100,
+      // REQUIRE_DESKTOP_APP=1 makes a desktop only exam; ALLOW_VIRTUAL_MACHINES=1 lets it run in one.
+      requireDesktopApp: process.env.REQUIRE_DESKTOP_APP === '1',
+      allowVirtualMachines: process.env.ALLOW_VIRTUAL_MACHINES === '1',
+    },
   },
 });
 const questions: [string, string[], number][] = [

@@ -6,6 +6,7 @@ import { authorize, requireCandidate, requireOrg } from '../auth/context.js';
 import { audit, auditFrom } from '../audit.js';
 import { notify } from '../notifications.js';
 import { examConfig } from '../examConfig.js';
+import { enforceClient } from '../client.js';
 import { evaluateReadiness, readinessReport } from '../readiness.js';
 import { signManifest } from '../signing.js';
 import { idParams, page, pagination, parse } from '../validation.js';
@@ -135,6 +136,8 @@ export async function candidateAppRoutes(app: FastifyInstance, deps: AppDeps) {
     const row = rows[0];
     if (!row || row.status === 'revoked') throw notFound('Entitlement');
     if (row.candidate_status !== 'approved') throw conflict('Candidate is not approved');
+    // The questions are in the package, so a browser must not get them for a desktop only exam.
+    enforceClient(req, examConfig.parse((row.manifest as { config?: unknown }).config ?? {}));
     if (['submitted', 'completed'].includes(row.status)) throw conflict('You have already submitted this exam');
     if (!['precheck_complete', 'active'].includes(row.status)) throw conflict('Complete the device check first');
     if (!['scheduled', 'open'].includes(row.session_status)) throw conflict(`Session is ${row.session_status}`);

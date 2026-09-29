@@ -25,7 +25,7 @@ interface Q {
 }
 
 /** Five questions of different types, worth 2 + 3 + 1 + 1 + 4 = 11 marks. */
-async function buildExam(org: TestOrg, security?: object) {
+async function buildExam(org: TestOrg, security?: object, device?: object) {
   const make = async (body: object) => (await call(h, 'POST', '/questions', org.owner, body)).body.id as string;
   const ids = [
     await make({ type: 'mcq', prompt: 'What is 2 + 2?', options: [{ label: '3' }, { label: '4', isCorrect: true }, { label: '5' }] }),
@@ -42,7 +42,7 @@ async function buildExam(org: TestOrg, security?: object) {
   const exam = await call(h, 'POST', '/exams', org.owner, {
     code: uniq('EX'),
     name: 'Attempts exam',
-    config: { timing: { durationMinutes: 60 }, ...(security ? { security } : {}) },
+    config: { timing: { durationMinutes: 60 }, ...(security ? { security } : {}), ...(device ? { device } : {}) },
   });
   await call(h, 'PUT', `/exams/${exam.body.id}/questions`, org.owner, {
     items: ids.map((questionId, i) => ({ questionId, points: points[i] })),
@@ -581,5 +581,77 @@ describe('exam rules', () => {
       fullscreen: false,
       blockClipboard: true,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Exams that can only be taken in the ExamGuard desktop application.
+// ---------------------------------------------------------------------------
+
+const DESKTOP = { 'x-examguard-client': 'desktop' };
+const desktopReport = () => ({ ...passingReport(), appKind: 'desktop' });
+
+describe('desktop only exams', () => {
+  async function desktopExam(org: TestOrg) {
+    const exam = await buildExam(org, undefined, { requireDesktopApp: true, supportedOs: ['windows', 'macos', 'linux', 'chromeos'] });
+    const sessionId = await session(h, org, exam.versionId, { startsAt: minutesFromNow(-1), endsAt: minutesFromNow(180) });
+    const name = uniq('cand');
+    const candidateId = await approvedCandidate(h, org, name);
+    await call(h, 'POST', '/assignments', org.owner, { sessionId, candidateIds: [candidateId] });
+    const { accessToken: token } = await login(h, org.slug, `${name}@${org.slug}.example`);
+    const assignmentId = (await call(h, 'GET', '/me/entitlements', token)).body.items[0].id as string;
+    return { ...exam, sessionId, token, assignmentId };
+  }
+
+  it('fails the device check in a browser and passes it in the desktop application', async () => {
+    const org = await createOrg(h);
+    const c = await desktopExam(org);
+    const inBrowser = await call(h, 'POST', `/me/entitlements/${c.assignmentId}/precheck`, c.token, passingReport());
+    expect(inBrowser.body.passed).toBe(false);
+    expect(inBrowser.body.checks.filter((x: { passed: boolean }) => !x.passed).map((x: { key: string }) => x.key)).toEqual(['desktop_app']);
+
+    const inApp = await call(h, 'POST', `/me/entitlements/${c.assignmentId}/precheck`, c.token, desktopReport(), DESKTOP);
+    expect(inApp.body.passed).toBe(true);
+  });
+
+  it('keeps the questions and the attempt away from a browser', async () => {
+    const org = await createOrg(h);
+    const c = await desktopExam(org);
+    await call(h, 'POST', `/me/entitlements/${c.assignmentId}/precheck`, c.token, desktopReport(), DESKTOP);
+
+    const pkg = await call(h, 'GET', `/me/entitlements/${c.assignmentId}/package`, c.token);
+    expect(pkg.status).toBe(409);
+    expect(pkg.body.error.message).toMatch(/desktop application/);
+    expect(JSON.stringify(pkg.body)).not.toMatch(/What is 2/); // no questions leak in the refusal
+
+    const start = await call(h, 'POST', '/attempts/start', c.token, { assignmentId: c.assignmentId });
+    expect(start.status).toBe(409);
+    expect(start.body.error.message).toMatch(/desktop application/);
+    const { rows } = await h.db.query('SELECT count(*)::int AS n FROM attempts WHERE assignment_id = $1', [c.assignmentId]);
+    expect(rows[0].n).toBe(0);
+  });
+
+  it('lets the desktop application download, start and finish the exam', async () => {
+    const org = await createOrg(h);
+    const c = await desktopExam(org);
+    await call(h, 'POST', `/me/entitlements/${c.assignmentId}/precheck`, c.token, desktopReport(), DESKTOP);
+    expect((await call(h, 'GET', `/me/entitlements/${c.assignmentId}/package`, c.token, undefined, DESKTOP)).status).toBe(200);
+    const start = await call(h, 'POST', '/attempts/start', c.token, { assignmentId: c.assignmentId }, DESKTOP);
+    expect(start.status).toBe(201);
+    const submit = await call(h, 'POST', `/attempts/${start.body.id}/submit`, c.token, {}, DESKTOP);
+    expect(submit.status).toBe(200);
+  });
+
+  it('does not restrict exams that allow browsers', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    expect(c.attemptId).toBeTruthy(); // the default exam started from a plain client
+  });
+
+  it('counts a screen added during the exam as a violation', async () => {
+    const org = await createOrg(h);
+    const c = await started(org, { violationPolicy: 'submit_immediately' });
+    const res = await postEvents(c, ev('display_added', { data: { count: 2 } }));
+    expect(res.body).toMatchObject({ violations: 1, action: 'ended', receipt: { submittedBy: 'system' } });
   });
 });

@@ -13,6 +13,7 @@ export const RULE_EVENT_TYPES = [
   'context_menu',
   'shortcut_blocked',
   'close_attempt',
+  'display_added',
 ] as const;
 
 export type RuleEventType = (typeof RULE_EVENT_TYPES)[number];
@@ -23,7 +24,7 @@ interface RuleEventInfo {
   counts: boolean;
 }
 
-// Leaving the exam counts. Blocked clipboard and shortcut attempts are
+// Leaving the exam, or adding another screen, counts. Blocked clipboard and shortcut attempts are
 // recorded for review but do not count: an accidental Ctrl+C should not end
 // someone's exam, and the action itself was already prevented.
 export const RULE_EVENTS: Record<RuleEventType, RuleEventInfo> = {
@@ -32,6 +33,8 @@ export const RULE_EVENTS: Record<RuleEventType, RuleEventInfo> = {
   left_window: { severity: 'high', counts: true },
   returned_window: { severity: 'info', counts: false },
   close_attempt: { severity: 'high', counts: true },
+  // Plugging in another screen during the exam (desktop application only).
+  display_added: { severity: 'high', counts: true },
   copy_attempt: { severity: 'warning', counts: false },
   cut_attempt: { severity: 'warning', counts: false },
   paste_attempt: { severity: 'warning', counts: false },
