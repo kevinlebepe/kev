@@ -1,0 +1,22 @@
+{
+  "name": "@examguard/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ExamGuard candidate desktop application: a locked down window around the exam screens",
+  "license": "UNLICENSED",
+  "main": "dist/main.js",
+  "scripts": {
+    "predev": "node scripts/ensure-electron.mjs",
+    "dev": "npm run build && electron .",
+    "start": "electron .",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "electron": "^44.4.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  }
+}
