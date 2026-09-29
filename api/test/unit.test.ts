@@ -6,6 +6,7 @@ import { canonicalJson, signManifest, verifyManifest } from '../src/signing.js';
 import { compareVersions, evaluateReadiness } from '../src/readiness.js';
 import { examConfig } from '../src/examConfig.js';
 import { markAttempt } from '../src/marking.js';
+import { COUNTED_EVENT_TYPES, decideAction, RULE_EVENT_TYPES, RULE_EVENTS } from '../src/rules.js';
 
 describe('allocate', () => {
   const ids = (n: number, p = 'c') => Array.from({ length: n }, (_, i) => `${p}${String(i).padStart(3, '0')}`);
@@ -164,5 +165,31 @@ describe('marking', () => {
   it('is complete when every question is automatic', () => {
     const result = markAttempt([questions[0]!], key, new Map([['a', { optionId: 'a2' }]]));
     expect(result).toMatchObject({ score: 2, maxScore: 2, needsManual: 0, status: 'marked' });
+  });
+});
+
+describe('exam rule decisions', () => {
+  it('does nothing when there are no violations', () => {
+    for (const policy of ['flag', 'warn_then_submit', 'submit_immediately'] as const) expect(decideAction(policy, 3, 0)).toBe('none');
+  });
+
+  it('only records under the flag policy, however many there are', () => {
+    expect(decideAction('flag', 3, 1)).toBe('recorded');
+    expect(decideAction('flag', 3, 500)).toBe('recorded');
+  });
+
+  it('warns up to the allowed number, then ends the exam', () => {
+    expect(decideAction('warn_then_submit', 3, 1)).toBe('warned');
+    expect(decideAction('warn_then_submit', 3, 3)).toBe('warned');
+    expect(decideAction('warn_then_submit', 3, 4)).toBe('ended');
+  });
+
+  it('ends the exam at the first violation under the strictest policy', () => {
+    expect(decideAction('submit_immediately', 3, 1)).toBe('ended');
+  });
+
+  it('counts leaving the exam, not blocked clipboard attempts', () => {
+    expect([...COUNTED_EVENT_TYPES].sort()).toEqual(['close_attempt', 'left_fullscreen', 'left_window']);
+    for (const type of RULE_EVENT_TYPES) expect(RULE_EVENTS[type]).toBeDefined();
   });
 });

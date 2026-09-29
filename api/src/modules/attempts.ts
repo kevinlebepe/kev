@@ -7,6 +7,7 @@ import { authorize, requireCandidate, requireOrg } from '../auth/context.js';
 import { audit, auditFrom } from '../audit.js';
 import { examConfig } from '../examConfig.js';
 import { existingReceipt, finalizeAttempt, type Receipt } from '../attempts.js';
+import { COUNTED_EVENT_TYPES, decideAction, RULE_EVENT_TYPES, RULE_EVENTS } from '../rules.js';
 import { idParams, page, pagination, parse } from '../validation.js';
 
 const answerResponse = z.union([
@@ -24,6 +25,21 @@ const answerBody = z.object({
 });
 
 const answersBatch = z.array(answerBody).max(200);
+
+const eventsBody = z.object({
+  events: z
+    .array(
+      z.object({
+        // Chosen by the app, so a retry after a lost response cannot record an event twice.
+        id: z.uuid(),
+        type: z.enum(RULE_EVENT_TYPES),
+        occurredAt: z.iso.datetime({ offset: true }),
+        data: z.record(z.string().max(40), z.union([z.string().max(200), z.number(), z.boolean()])).optional(),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
 
 const startBody = z.object({ assignmentId: z.uuid() });
 const saveBody = z.object({ answers: answersBatch.default([]), position: z.number().int().min(0).max(10_000).optional() });
@@ -303,6 +319,69 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
     });
   });
 
+  // Exam rule events from the candidate app. The server counts the violations
+  // and applies the exam's policy, so the outcome never depends on the app.
+  app.post('/attempts/:id/events', async (req) => {
+    const auth = requireCandidate(req);
+    const { id } = parse(idParams, req.params);
+    const body = parse(eventsBody, req.body);
+
+    const outcome = await withTransaction(db, async (tx) => {
+      const attempt = await lockAttempt(tx, id, auth.organisationId, auth.candidateId);
+      if (attempt.status !== 'active') return { closed: await existingReceipt(tx, id) };
+      if (attempt.expired) {
+        return { closed: await finalizeAttempt(tx, config, id, 'timer', { userId: auth.userId, ip: req.ip }) };
+      }
+
+      for (const e of body.events) {
+        // The device clock is not trusted: a time outside the attempt is replaced by now.
+        await tx.query(
+          `INSERT INTO events (id, organisation_id, attempt_id, type, severity, occurred_at, data)
+           VALUES ($1, $2, $3, $4, $5,
+                   CASE WHEN $6::timestamptz BETWEEN $7 AND now() THEN $6::timestamptz ELSE now() END, $8)
+           ON CONFLICT (id) DO NOTHING`,
+          [e.id, auth.organisationId, id, e.type, RULE_EVENTS[e.type].severity, e.occurredAt, attempt.started_at, e.data ?? {}],
+        );
+      }
+
+      const { rows } = await tx.query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM events WHERE attempt_id = $1 AND type = ANY($2::text[])',
+        [id, COUNTED_EVENT_TYPES],
+      );
+      const violations = rows[0]!.n;
+      const security = examConfig.parse((attempt.manifest as { config?: unknown }).config ?? {}).security;
+      const action = decideAction(security.violationPolicy, security.maxViolations, violations);
+      const summary = { violations, policy: security.violationPolicy, maxViolations: security.maxViolations, action };
+
+      if (action !== 'ended') return summary;
+
+      await tx.query(
+        `INSERT INTO events (organisation_id, attempt_id, type, severity, occurred_at, data)
+         VALUES ($1, $2, 'attempt_ended_for_rules', 'high', date_trunc('milliseconds', now()), $3)`,
+        [auth.organisationId, id, { violations, policy: security.violationPolicy }],
+      );
+      const receipt = await finalizeAttempt(tx, config, id, 'system', { userId: auth.userId, ip: req.ip });
+      return { ...summary, receipt };
+    });
+
+    if ('closed' in outcome) throw conflict('This attempt is closed', { receipt: outcome.closed });
+    return outcome;
+  });
+
+  // Everything that happened in an attempt, in order (spec section 16).
+  app.get('/attempts/:id/timeline', { preHandler: authorize('report:view') }, async (req) => {
+    const auth = requireOrg(req);
+    const { id } = parse(idParams, req.params);
+    const { rowCount } = await db.query('SELECT 1 FROM attempts WHERE id = $1 AND organisation_id = $2', [id, auth.organisationId]);
+    if (!rowCount) throw notFound('Attempt');
+    const { rows } = await db.query(
+      `SELECT type, severity, occurred_at AS "occurredAt", data FROM events
+        WHERE attempt_id = $1 ORDER BY occurred_at, seq`,
+      [id],
+    );
+    return { items: rows };
+  });
+
   // Organisation view: who has started, submitted and how automatic marking went.
   app.get('/sessions/:id/attempts', { preHandler: authorize('report:view') }, async (req) => {
     const auth = requireOrg(req);
@@ -313,14 +392,15 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
     const { rows } = await db.query(
       `SELECT c.id AS "candidateId", c.full_name AS "fullName", a.id AS "assignmentId", a.status AS "entitlementStatus",
               at.id AS "attemptId", at.status, at.started_at AS "startedAt", at.submitted_at AS "submittedAt",
-              at.submitted_by AS "submittedBy", r.score::float AS score, r.max_score::float AS "maxScore", r.status AS "markingStatus"
+              at.submitted_by AS "submittedBy", r.score::float AS score, r.max_score::float AS "maxScore", r.status AS "markingStatus",
+              (SELECT count(*)::int FROM events ev WHERE ev.attempt_id = at.id AND ev.type = ANY($5::text[])) AS violations
          FROM exam_assignments a
          JOIN candidates c ON c.id = a.candidate_id
          LEFT JOIN attempts at ON at.assignment_id = a.id
          LEFT JOIN results r ON r.attempt_id = at.id
         WHERE a.session_id = $1 AND a.organisation_id = $2 AND a.status <> 'revoked'
         ORDER BY c.full_name, a.id LIMIT $3 OFFSET $4`,
-      [id, auth.organisationId, limit, offset],
+      [id, auth.organisationId, limit, offset, COUNTED_EVENT_TYPES],
     );
     return page(rows, limit, offset);
   });

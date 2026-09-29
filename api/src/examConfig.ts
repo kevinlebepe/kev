@@ -17,8 +17,25 @@ export const examConfig = z.object({
       camera: z.boolean().default(false),
       microphone: z.boolean().default(false),
       eventMonitoring: z.boolean().default(true),
+      // Exam rules. The app detects and reports; the server counts and decides.
+      fullscreen: z.boolean().default(true),
+      blockClipboard: z.boolean().default(true),
+      // flag: record for review. warn_then_submit: warn, then end the exam after
+      // more than maxViolations. submit_immediately: end the exam at the first one.
+      violationPolicy: z.enum(['flag', 'warn_then_submit', 'submit_immediately']).default('flag'),
+      maxViolations: z.number().int().min(1).max(20).default(3),
     })
-    .default({ kiosk: true, screenCapture: false, camera: false, microphone: false, eventMonitoring: true }),
+    .default({
+      kiosk: true,
+      screenCapture: false,
+      camera: false,
+      microphone: false,
+      eventMonitoring: true,
+      fullscreen: true,
+      blockClipboard: true,
+      violationPolicy: 'flag',
+      maxViolations: 3,
+    }),
   invigilation: z
     .object({
       required: z.boolean().default(false),

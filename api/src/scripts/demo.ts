@@ -56,7 +56,8 @@ const exam = await call('POST', '/exams', owner, {
   config: {
     // Generous start window so the demo stays usable for the whole session.
     timing: { durationMinutes: 120, startWindowMinutes: 170 },
-    security: { camera: true, microphone: true },
+    // Leaving the exam is warned about three times; the fourth ends it.
+    security: { camera: true, microphone: true, violationPolicy: 'warn_then_submit', maxViolations: 3 },
     // Browsers report a storage quota, not free disk space, so keep this low for the demo.
     device: { supportedOs: ['windows', 'macos', 'linux', 'chromeos'], minFreeStorageMb: 100 },
   },

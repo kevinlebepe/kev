@@ -1,4 +1,4 @@
-import { createPublicKey } from 'node:crypto';
+import { createPublicKey, randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { finalizeAttempt, finalizeExpiredAttempts, receiptPayload } from '../src/attempts.js';
 import { withTransaction } from '../src/db.js';
@@ -25,7 +25,7 @@ interface Q {
 }
 
 /** Five questions of different types, worth 2 + 3 + 1 + 1 + 4 = 11 marks. */
-async function buildExam(org: TestOrg) {
+async function buildExam(org: TestOrg, security?: object) {
   const make = async (body: object) => (await call(h, 'POST', '/questions', org.owner, body)).body.id as string;
   const ids = [
     await make({ type: 'mcq', prompt: 'What is 2 + 2?', options: [{ label: '3' }, { label: '4', isCorrect: true }, { label: '5' }] }),
@@ -42,7 +42,7 @@ async function buildExam(org: TestOrg) {
   const exam = await call(h, 'POST', '/exams', org.owner, {
     code: uniq('EX'),
     name: 'Attempts exam',
-    config: { timing: { durationMinutes: 60 } },
+    config: { timing: { durationMinutes: 60 }, ...(security ? { security } : {}) },
   });
   await call(h, 'PUT', `/exams/${exam.body.id}/questions`, org.owner, {
     items: ids.map((questionId, i) => ({ questionId, points: points[i] })),
@@ -75,8 +75,8 @@ async function candidateReady(
   return { ...exam, sessionId, candidateId, token, assignmentId };
 }
 
-async function started(org: TestOrg) {
-  const c = await candidateReady(org);
+async function started(org: TestOrg, security?: object) {
+  const c = await candidateReady(org, { exam: await buildExam(org, security) });
   const res = await call(h, 'POST', '/attempts/start', c.token, { assignmentId: c.assignmentId });
   expect(res.status).toBe(201);
   return { ...c, attemptId: res.body.id as string, start: res.body };
@@ -434,5 +434,152 @@ describe('submitting', () => {
     const log = await call(h, 'GET', '/audit?limit=100', org.owner);
     const actions = log.body.items.map((e: { action: string }) => e.action);
     expect(actions).toEqual(expect.arrayContaining(['attempt.start', 'attempt.submit']));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Exam rules: the app reports, the server counts and decides.
+// ---------------------------------------------------------------------------
+
+const ev = (type: string, extra: object = {}) => ({ id: randomUUID(), type, occurredAt: new Date().toISOString(), ...extra });
+const postEvents = (c: { attemptId: string; token: string }, ...events: object[]) =>
+  call(h, 'POST', `/attempts/${c.attemptId}/events`, c.token, { events });
+
+describe('exam rules', () => {
+  it('records events once, however many times the same report is sent', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    const event = ev('left_window', { data: { reason: 'tab_hidden' } });
+    const first = await postEvents(c, event);
+    const again = await postEvents(c, event); // a retry after a lost response
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ violations: 1, action: 'recorded', policy: 'flag' });
+    expect(again.body.violations).toBe(1);
+
+    const { rows } = await h.db.query(`SELECT count(*)::int AS n FROM events WHERE attempt_id = $1 AND type = 'left_window'`, [c.attemptId]);
+    expect(rows[0].n).toBe(1);
+  });
+
+  it('under the flag policy only records, however often the candidate leaves', async () => {
+    const org = await createOrg(h);
+    const c = await started(org, { violationPolicy: 'flag' });
+    for (let i = 0; i < 6; i++) await postEvents(c, ev('left_fullscreen'), ev('returned_fullscreen'));
+    const res = await postEvents(c, ev('close_attempt'));
+    expect(res.body).toMatchObject({ violations: 7, action: 'recorded' });
+    expect((await call(h, 'GET', `/attempts/${c.attemptId}`, c.token)).body.status).toBe('active');
+  });
+
+  it('records blocked copy, paste and shortcut attempts without counting them', async () => {
+    const org = await createOrg(h);
+    const c = await started(org, { violationPolicy: 'submit_immediately' });
+    const res = await postEvents(c, ev('copy_attempt'), ev('cut_attempt'), ev('paste_attempt'), ev('context_menu'), ev('shortcut_blocked', { data: { key: 'F12' } }));
+    expect(res.body).toMatchObject({ violations: 0, action: 'none' });
+    expect((await call(h, 'GET', `/attempts/${c.attemptId}`, c.token)).body.status).toBe('active');
+    const timeline = await call(h, 'GET', `/attempts/${c.attemptId}/timeline`, org.owner);
+    expect(timeline.body.items.map((e: { type: string }) => e.type)).toEqual(
+      expect.arrayContaining(['copy_attempt', 'cut_attempt', 'paste_attempt', 'shortcut_blocked']),
+    );
+  });
+
+  it('warns, then ends the exam once the allowed number is exceeded', async () => {
+    const org = await createOrg(h);
+    const c = await started(org, { violationPolicy: 'warn_then_submit', maxViolations: 2 });
+    const q1 = c.questions[0]!;
+    await call(h, 'PATCH', `/attempts/${c.attemptId}/state`, c.token, { answers: [answer(q1.id, 1, { optionId: q1.options['4'] })] });
+
+    expect((await postEvents(c, ev('left_window'))).body).toMatchObject({ violations: 1, action: 'warned', maxViolations: 2 });
+    expect((await postEvents(c, ev('left_fullscreen'))).body).toMatchObject({ violations: 2, action: 'warned' });
+    const third = await postEvents(c, ev('close_attempt'));
+    expect(third.body).toMatchObject({ violations: 3, action: 'ended', receipt: { submittedBy: 'system', answered: 1 } });
+
+    // What was saved is kept and marked; nothing more is accepted.
+    const { rows } = await h.db.query(`SELECT score::float AS score FROM results WHERE attempt_id = $1`, [c.attemptId]);
+    expect(rows[0].score).toBe(2);
+    expect((await call(h, 'PATCH', `/attempts/${c.attemptId}/state`, c.token, { answers: [] })).status).toBe(409);
+    expect((await call(h, 'GET', '/me/entitlements', c.token)).body.items[0].status).toBe('submitted');
+
+    const timeline = await call(h, 'GET', `/attempts/${c.attemptId}/timeline`, org.owner);
+    const types = timeline.body.items.map((e: { type: string }) => e.type);
+    expect(types).toEqual(['attempt_started', 'left_window', 'left_fullscreen', 'close_attempt', 'attempt_ended_for_rules', 'attempt_auto_submitted']);
+  });
+
+  it('ends the exam at the first violation under the strictest policy', async () => {
+    const org = await createOrg(h);
+    const c = await started(org, { violationPolicy: 'submit_immediately' });
+    const res = await postEvents(c, ev('left_window'));
+    expect(res.body).toMatchObject({ violations: 1, action: 'ended', receipt: { submittedBy: 'system' } });
+  });
+
+  it('applies the exam policy the organisation published, not one the app claims', async () => {
+    const org = await createOrg(h);
+    const c = await started(org); // default policy: flag
+    const res = await call(h, 'POST', `/attempts/${c.attemptId}/events`, c.token, {
+      events: [ev('left_window')],
+      policy: 'submit_immediately', // ignored
+    });
+    expect(res.body).toMatchObject({ policy: 'flag', action: 'recorded' });
+  });
+
+  it('replaces an implausible device time with the server time', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    await postEvents(c, ev('left_window', { occurredAt: '2001-01-01T00:00:00Z' }), ev('returned_window', { occurredAt: '2099-01-01T00:00:00Z' }));
+    const { rows } = await h.db.query(
+      `SELECT count(*)::int AS n FROM events e JOIN attempts a ON a.id = e.attempt_id
+        WHERE e.attempt_id = $1 AND e.type IN ('left_window', 'returned_window') AND e.occurred_at BETWEEN a.started_at AND now()`,
+      [c.attemptId],
+    );
+    expect(rows[0].n).toBe(2);
+  });
+
+  it('refuses reports for a closed attempt, returning the receipt', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    await call(h, 'POST', `/attempts/${c.attemptId}/submit`, c.token, {});
+    const res = await postEvents(c, ev('left_window'));
+    expect(res.status).toBe(409);
+    expect(res.body.error.details.receipt).toMatchObject({ submittedBy: 'candidate' });
+  });
+
+  it('validates reports and keeps them private to the candidate', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    expect((await postEvents(c, ev('made_up_event'))).status).toBe(400);
+    expect((await postEvents(c)).status).toBe(400);
+    expect((await postEvents(c, { id: 'not-a-uuid', type: 'left_window', occurredAt: new Date().toISOString() })).status).toBe(400);
+    expect((await postEvents(c, ...Array.from({ length: 51 }, () => ev('context_menu')))).status).toBe(400);
+
+    const other = await candidateReady(org, { exam: { versionId: c.versionId, questions: c.questions } });
+    expect((await call(h, 'POST', `/attempts/${c.attemptId}/events`, other.token, { events: [ev('left_window')] })).status).toBe(404);
+    expect((await call(h, 'POST', `/attempts/${c.attemptId}/events`, org.owner, { events: [ev('left_window')] })).status).toBe(403);
+  });
+
+  it('gives the organisation the timeline and the violation count, and nobody else', async () => {
+    const org = await createOrg(h);
+    const c = await started(org);
+    await postEvents(c, ev('left_window'), ev('returned_window'), ev('left_fullscreen'));
+
+    const timeline = await call(h, 'GET', `/attempts/${c.attemptId}/timeline`, org.owner);
+    expect(timeline.body.items.map((e: { type: string }) => e.type)).toEqual(['attempt_started', 'left_window', 'returned_window', 'left_fullscreen']);
+    expect(timeline.body.items[1].severity).toBe('high');
+
+    const list = await call(h, 'GET', `/sessions/${c.sessionId}/attempts`, org.owner);
+    expect(list.body.items[0]).toMatchObject({ violations: 2 });
+
+    expect((await call(h, 'GET', `/attempts/${c.attemptId}/timeline`, c.token)).status).toBe(403);
+    const other = await createOrg(h);
+    expect((await call(h, 'GET', `/attempts/${c.attemptId}/timeline`, other.owner)).status).toBe(404);
+  });
+
+  it('puts the rules into the signed exam package', async () => {
+    const org = await createOrg(h);
+    const exam = await buildExam(org, { violationPolicy: 'warn_then_submit', maxViolations: 4, fullscreen: false });
+    const pkg = await call(h, 'GET', `/exam-versions/${exam.versionId}/package`, org.owner);
+    expect(pkg.body.manifest.config.security).toMatchObject({
+      violationPolicy: 'warn_then_submit',
+      maxViolations: 4,
+      fullscreen: false,
+      blockClipboard: true,
+    });
   });
 });
