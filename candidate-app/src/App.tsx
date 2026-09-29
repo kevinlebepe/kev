@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { request, resumeSession, signOut } from './lib/api';
 import { examFromSearch } from './lib/launch';
+import { onboardingRoute } from './lib/onboarding';
+import { AcceptInvitation, Register, VerifyEmail } from './screens/Onboarding';
 import type { Entitlement } from './lib/types';
 import { currentBridge } from './device/bridge';
 import { Login } from './screens/Login';
@@ -17,6 +19,8 @@ type Screen =
   | { name: 'exam'; entitlement: Entitlement };
 
 export function App() {
+  // A link from an onboarding email opens its screen before anything else.
+  const [onboarding, setOnboarding] = useState(() => onboardingRoute(window.location.pathname));
   const [screen, setScreen] = useState<Screen>({ name: 'starting' });
   const [items, setItems] = useState<Entitlement[]>([]);
   const [results, setResults] = useState<ReleasedResult[]>([]);
@@ -50,11 +54,22 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (onboarding) return;
     resumeSession().then((ok) => (ok ? load() : setScreen({ name: 'login' })));
-  }, [load]);
+  }, [load, onboarding]);
+
+  const toSignIn = () => {
+    // The token must not stay in the address bar or the history once used.
+    window.history.replaceState(null, '', '/');
+    setOnboarding(null);
+    setScreen({ name: 'login' });
+  };
+  if (onboarding?.kind === 'invitation') return <AcceptInvitation token={onboarding.token} onDone={toSignIn} />;
+  if (onboarding?.kind === 'verify-email') return <VerifyEmail token={onboarding.token} onDone={toSignIn} />;
+  if (onboarding?.kind === 'register') return <Register organisation={onboarding.organisation} onDone={toSignIn} />;
 
   if (screen.name === 'starting') return <main className="centered">Starting…</main>;
-  if (screen.name === 'login') return <Login onSignedIn={load} />;
+  if (screen.name === 'login') return <Login onSignedIn={load} onRegister={() => setOnboarding({ kind: 'register', organisation: null })} />;
   if (screen.name === 'exam') return <ExamView entitlement={screen.entitlement} onExit={load} />;
 
   return (

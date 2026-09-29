@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from 'react';
 import { signIn } from '../lib/api';
 
-export function Login({ onSignedIn }: { onSignedIn: () => void }) {
+export function Login({ onSignedIn, onRegister }: { onSignedIn: () => void; onRegister?: () => void }) {
   const [organisation, setOrganisation] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -54,6 +54,14 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
         <p className="help">
           Need help? Contact your organisation’s exam support. Complete your device check well before exam day.
         </p>
+        {onRegister && (
+          <p className="help">
+            New here and not invited?{' '}
+            <button type="button" className="link" onClick={onRegister}>
+              Create an account
+            </button>
+          </p>
+        )}
       </form>
     </main>
   );

@@ -87,6 +87,9 @@ export interface Config {
   /** Extra time after the deadline in which a final save or submit is still accepted (network delay). */
   attemptGraceSeconds: number;
   examSigning: { privateKey: KeyObject; publicKey: KeyObject; keyId: string };
+  /** SMTP server for outgoing email. Without it, development prints emails to the log and production sends none. */
+  smtpUrl: string | null;
+  mailFrom: string;
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
@@ -103,6 +106,8 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     packagePrefetchMinutes: Number(process.env.PACKAGE_PREFETCH_MINUTES ?? 10),
     attemptGraceSeconds: Number(process.env.ATTEMPT_GRACE_SECONDS ?? 30),
     examSigning: loadSigningKey(),
+    smtpUrl: process.env.SMTP_URL || null,
+    mailFrom: process.env.MAIL_FROM ?? 'ExamGuard <no-reply@examguard.local>',
     ...overrides,
   };
 }
