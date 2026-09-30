@@ -13,6 +13,7 @@ import { MarkingSessions, Results, Marking } from './pages/Results';
 import { Staff } from './pages/Staff';
 import { Audit } from './pages/Audit';
 import { Integrations } from './pages/Integrations';
+import { AttemptReport, Reports } from './pages/Reports';
 import { Account, TwoFactorRequired } from './pages/Account';
 import { AcceptStaffInvitation, ResetPassword } from './pages/Public';
 
@@ -27,6 +28,7 @@ const NAV: NavItem[] = [
   { path: 'sessions', text: 'Sessions', permission: 'session:manage' },
   { path: 'exams', text: 'Exams', permission: 'exam:create' },
   { path: 'marking', text: 'Marking and results', permission: 'report:view' },
+  { path: 'reports', text: 'Reports', permission: 'report:view' },
   { path: 'candidates', text: 'Candidates', permission: 'candidate:view' },
   { path: 'invigilators', text: 'Invigilators', permission: 'invigilator:create' },
   { path: 'staff', text: 'Staff', permission: 'organisation:manage_users' },
@@ -154,6 +156,10 @@ function render(section: string | undefined, id: string | undefined, sub: string
       return <Staff />;
     case 'audit':
       return <Audit />;
+    case 'reports':
+      return <Reports />;
+    case 'report':
+      return id ? <AttemptReport attemptId={id} /> : <Reports />;
     case 'integrations':
       return <Integrations />;
     default:

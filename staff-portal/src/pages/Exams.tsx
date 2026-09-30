@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActionButton, Badge, Check, ErrorText, Field, Form, Loading, Page } from '../components/ui';
 import { request } from '../lib/api';
-import { formatDateTime, label } from '../lib/format';
+import { formatDateTime, isoToLocal, label, localToIso } from '../lib/format';
 import { href, navigate } from '../lib/router';
 import { can, useMe } from '../lib/session';
 import { useApi } from '../lib/useApi';
@@ -247,13 +247,6 @@ const POLICY_TEXT: Record<Policy, string> = {
   submit_immediately: 'End the exam at the first break',
 };
 
-/** An ISO date as the value of a datetime-local input, in the browser's time zone. */
-function toLocalInput(iso: string): string {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
 function Settings({ exam, onSaved }: { exam: ExamDetailData; onSaved: () => void }) {
   const [c, setC] = useState(() => withDefaults(exam.config));
   const [saved, setSaved] = useState(false);
@@ -345,8 +338,8 @@ function Settings({ exam, onSaved }: { exam: ExamDetailData; onSaved: () => void
       <Field label="Release results automatically on" hint="Leave empty to release by hand. Results marked after this date are released as they are finished.">
         <input
           type="datetime-local"
-          value={c.results.releaseAt ? toLocalInput(c.results.releaseAt) : ''}
-          onChange={(e) => res({ releaseAt: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
+          value={c.results.releaseAt ? isoToLocal(c.results.releaseAt) : ''}
+          onChange={(e) => res({ releaseAt: e.target.value ? localToIso(e.target.value) : undefined })}
         />
       </Field>
 

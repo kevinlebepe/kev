@@ -225,3 +225,18 @@ td.details { max-width: 24rem; overflow-wrap: anywhere; }
 .recovery code { font-size: 1rem; user-select: all; }
 .content.narrow { max-width: 40rem; margin: 0 auto; }
 .who a { color: var(--accent); }
+
+/* Reports */
+.tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; border-bottom: 1px solid var(--border); margin: 1rem 0; }
+.tab { background: none; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; padding: 0.5rem 0.9rem; cursor: pointer; color: inherit; }
+.tab.active { border-color: var(--border); background: var(--surface); font-weight: 600; margin-bottom: -1px; }
+.chip { display: inline-block; border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.6rem; margin: 0 0.35rem 0.35rem 0; }
+tr.flagged td { font-weight: 600; }
+.report h2 { margin-top: 1.5rem; }
+
+@media print {
+  .sidebar, .page-head .actions, .back, button { display: none !important; }
+  .shell { display: block; }
+  .content { padding: 0; }
+  .table-wrap { overflow: visible; }
+}

@@ -85,7 +85,7 @@ export function Results({ sessionId }: { sessionId: string }) {
               <th>Rule breaks</th>
               <th>Score</th>
               <th>Status</th>
-              {can(me, 'result:mark') && <th />}
+              <th />
             </tr>
           </thead>
           <tbody>
@@ -104,11 +104,10 @@ export function Results({ sessionId }: { sessionId: string }) {
                 <td>
                   <Badge value={r.status} />
                 </td>
-                {can(me, 'result:mark') && (
-                  <td>
-                    <a href={href('marking', r.attemptId)}>{r.status === 'pending' ? 'Mark' : 'View'}</a>
-                  </td>
-                )}
+                <td className="row">
+                  {can(me, 'result:mark') && <a href={href('marking', r.attemptId)}>{r.status === 'pending' ? 'Mark' : 'View'}</a>}
+                  <a href={href('report', r.attemptId)}>Report</a>
+                </td>
               </tr>
             ))}
           </tbody>

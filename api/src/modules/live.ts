@@ -20,6 +20,9 @@ const messageBody = z.object({ kind: z.enum(['message', 'warning']).default('mes
 const extendBody = z.object({ minutes: z.number().int().min(1).max(MAX_EXTENSION_MINUTES), reason: z.string().trim().min(1).max(500) });
 const endBody = z.object({ reason: z.string().trim().min(1).max(500) });
 const noteBody = z.object({ note: z.string().trim().min(1).max(2000) });
+/** What an invigilator saw that a reviewer should look at. A flag is a record for review, not a finding. */
+export const FLAG_REASONS = ['identity', 'another_person', 'materials', 'device', 'behaviour', 'technical', 'other'] as const;
+const flagBody = z.object({ reason: z.enum(FLAG_REASONS), note: z.string().trim().max(2000).optional() });
 
 export type OrgAuth = AuthContext & { organisationId: string };
 
@@ -311,6 +314,21 @@ export async function liveRoutes(app: FastifyInstance, deps: AppDeps) {
       await scopedAttempt(tx, auth, v, id);
       await recordStaffEvent(tx, auth, v, id, 'invigilator_note', 'warning', { note: body.note });
       await audit(tx, { ...auditFrom(req), action: 'live.note', targetType: 'attempt', targetId: id });
+    });
+    return reply.code(201).send({ ok: true });
+  });
+
+  // Flag something for review (spec section 8), with an optional note. It
+  // appears on the incidents report and the candidate's timeline.
+  app.post('/live/attempts/:id/flag', { preHandler: authorize('live:view') }, async (req, reply) => {
+    const auth = requireOrg(req);
+    const { id } = parse(idParams, req.params);
+    const body = parse(flagBody, req.body);
+    await withTransaction(db, async (tx) => {
+      const v = await viewer(tx, auth);
+      await scopedAttempt(tx, auth, v, id);
+      await recordStaffEvent(tx, auth, v, id, 'invigilator_flag', 'high', { reason: body.reason, ...(body.note ? { note: body.note } : {}) });
+      await audit(tx, { ...auditFrom(req), action: 'live.flag', targetType: 'attempt', targetId: id, data: { reason: body.reason } });
     });
     return reply.code(201).send({ ok: true });
   });

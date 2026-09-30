@@ -6,6 +6,7 @@ import { href } from '../lib/router';
 import { useApi } from '../lib/useApi';
 import { Snapshot } from '../components/media';
 import { LiveCallControls } from '../components/LiveCall';
+import { FLAG_TEXT } from './Reports';
 
 const REFRESH_MS = 5000;
 
@@ -189,6 +190,7 @@ function AttemptPanel({ attemptId, offset, now, onClose, onChanged }: { attemptI
   const [kind, setKind] = useState<'message' | 'warning'>('message');
   const [minutes, setMinutes] = useState(10);
   const [note, setNote] = useState('');
+  const [flag, setFlag] = useState('');
   const d = detail.data;
   const active = d?.status === 'active';
   // A voice only exam takes rule warnings in writing, but no chat.
@@ -302,18 +304,43 @@ function AttemptPanel({ attemptId, offset, now, onClose, onChanged }: { attemptI
             </>
           )}
 
-          <h3>Note for the record</h3>
+          <h3>Note or flag for the record</h3>
           <textarea rows={2} value={note} maxLength={2000} onChange={(e) => setNote(e.target.value)} aria-label="Note" />
-          <ActionButton
-            disabled={!note.trim()}
-            onClick={async () => {
-              await request('POST', `/live/attempts/${attemptId}/notes`, { note: note.trim() });
-              setNote('');
-              await refresh();
-            }}
-          >
-            Add note
-          </ActionButton>
+          <div className="row">
+            <ActionButton
+              disabled={!note.trim()}
+              onClick={async () => {
+                await request('POST', `/live/attempts/${attemptId}/notes`, { note: note.trim() });
+                setNote('');
+                await refresh();
+              }}
+            >
+              Add note
+            </ActionButton>
+            <label className="field narrow">
+              <span>Flag for review</span>
+              <select value={flag} onChange={(e) => setFlag(e.target.value)} aria-label="Reason for the flag">
+                <option value="">Choose a reason</option>
+                {Object.entries(FLAG_TEXT).map(([k, v]) => (
+                  <option key={k} value={k}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <ActionButton
+              disabled={!flag}
+              onClick={async () => {
+                await request('POST', `/live/attempts/${attemptId}/flag`, { reason: flag, ...(note.trim() ? { note: note.trim() } : {}) });
+                setFlag('');
+                setNote('');
+                await refresh();
+              }}
+            >
+              Flag
+            </ActionButton>
+          </div>
+          <p className="muted small">A flag asks a reviewer to look. It is not a finding against the candidate.</p>
 
           {active && (
             <p>
@@ -350,7 +377,7 @@ function AttemptPanel({ attemptId, offset, now, onClose, onChanged }: { attemptI
             {[...d.timeline].reverse().map((e, i) => (
               <li key={i} className={e.severity}>
                 <span className="muted">{formatTime(e.occurredAt)}</span> {label(e.type)}
-                {typeof e.data.reason === 'string' && `: ${e.data.reason}`}
+                {typeof e.data.reason === 'string' && `: ${e.type === 'invigilator_flag' ? (FLAG_TEXT[e.data.reason] ?? e.data.reason) : e.data.reason}`}
                 {typeof e.data.note === 'string' && `: ${e.data.note}`}
                 {typeof e.data.minutes === 'number' && ` (${e.data.minutes} min)`}
               </li>

@@ -9,6 +9,7 @@ import { AUTO_MARKED } from '../marking.js';
 import { loadMarkingInput, markFrom, percent, recomputeResult, releaseSessionResults } from '../results.js';
 import { COUNTED_EVENT_TYPES } from '../rules.js';
 import { idParams, parse } from '../validation.js';
+import { csvCell } from '../csv.js';
 
 const marksBody = z.object({
   marks: z
@@ -18,14 +19,6 @@ const marksBody = z.object({
 });
 
 const resultsQuery = z.object({ format: z.enum(['json', 'csv']).default('json') });
-
-/** Spreadsheet programs run cells that start with these characters as formulas. */
-function csvCell(value: unknown): string {
-  let s = value === null || value === undefined ? '' : String(value);
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-  return /[",\n\r]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
-}
-
 
 export async function resultRoutes(app: FastifyInstance, deps: AppDeps) {
   const { db } = deps;
