@@ -1,5 +1,5 @@
-import { type FormEvent, useState } from 'react';
-import { completeMfa, request, signIn } from '../lib/api';
+import { type FormEvent, useEffect, useState } from 'react';
+import { completeMfa, request, signIn, ssoStartUrl } from '../lib/api';
 
 type Step = { name: 'password' } | { name: 'code'; mfaToken: string } | { name: 'forgot' } | { name: 'sent'; message: string };
 
@@ -11,6 +11,25 @@ export function Login({ onSignedIn, notice }: { onSignedIn: () => void; notice?:
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(notice ?? null);
   const [busy, setBusy] = useState(false);
+  const [sso, setSso] = useState<{ id: string; name: string }[]>([]);
+  // Once the organisation code is typed, offer its single sign on, if any.
+  useEffect(() => {
+    const slug = organisation.trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9-]{1,62}$/.test(slug)) {
+      setSso([]);
+      return;
+    }
+    let stale = false;
+    const t = setTimeout(() => {
+      request<{ sso: { id: string; name: string; forStaff: boolean }[] }>('GET', `/public/organisations/${slug}/branding`)
+        .then((b) => !stale && setSso(b.sso.filter((p) => p.forStaff)))
+        .catch(() => !stale && setSso([]));
+    }, 400);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [organisation]);
 
   async function run(e: FormEvent, action: () => Promise<void>) {
     e.preventDefault();
@@ -146,6 +165,11 @@ export function Login({ onSignedIn, notice }: { onSignedIn: () => void; notice?:
             Forgot your password?
           </button>
         </p>
+        {sso.map((p) => (
+          <a key={p.id} className="button" href={ssoStartUrl(p.id, 'portal')}>
+            Sign in with {p.name}
+          </a>
+        ))}
       </form>
     </main>
   );

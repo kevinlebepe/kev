@@ -182,7 +182,13 @@ export async function peopleRoutes(app: FastifyInstance, deps: AppDeps) {
       [slug],
     );
     if (!rows[0]) throw notFound('Organisation');
-    return { name: rows[0].name, colour: rows[0].colour, logo: rows[0].logo, accessCodes: rows[0].access_codes };
+    // Single sign on buttons, for the sign in screens.
+    const { rows: sso } = await db.query(
+      `SELECT p.id, p.name, p.for_staff AS "forStaff", p.for_candidates AS "forCandidates"
+         FROM identity_providers p JOIN organisations o ON o.id = p.organisation_id WHERE o.slug = $1 AND p.enabled ORDER BY p.created_at`,
+      [slug],
+    );
+    return { name: rows[0].name, colour: rows[0].colour, logo: rows[0].logo, accessCodes: rows[0].access_codes, sso };
   });
 
   app.get('/public/organisations/:slug/logo', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (req, reply) => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { request, resumeSession, signOut } from './lib/api';
+import { completeSso, request, resumeSession, signOut } from './lib/api';
 import { href, useRoute } from './lib/router';
 import { can, type Me, MeContext } from './lib/session';
 import { Login } from './pages/Login';
@@ -66,7 +66,14 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    resumeSession().then((ok) => (ok ? load() : setMe(null)));
+    // Back from single sign on: swap the one time code for a session, then tidy the address.
+    const params = new URLSearchParams(window.location.search);
+    const ssoCode = params.get('sso');
+    const ssoError = params.get('sso_error');
+    if (ssoCode || ssoError) window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+    if (ssoError) setNotice(ssoError);
+    const start = ssoCode ? completeSso(ssoCode).then(() => true, (err: Error) => (setNotice(err.message), false)) : resumeSession();
+    start.then((ok) => (ok ? load() : setMe(null)));
   }, [load]);
 
   // Links from emails open before, and without, signing in.

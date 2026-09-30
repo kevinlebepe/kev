@@ -21,6 +21,7 @@ import { notificationRoutes } from './modules/notifications.js';
 import { systemRoutes } from './modules/system.js';
 import { governanceRoutes } from './modules/governance.js';
 import { peopleRoutes } from './modules/people.js';
+import { ssoRoutes } from './modules/sso.js';
 import { storeFromConfig } from './storage.js';
 
 export async function buildApp(given: AppDeps, opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
@@ -58,7 +59,7 @@ export async function buildApp(given: AppDeps, opts: { logger?: boolean } = {}):
     }
   });
 
-  for (const routes of [authRoutes, organisationRoutes, candidateRoutes, examRoutes, sessionRoutes, invigilationRoutes, candidateAppRoutes, attemptRoutes, liveRoutes, resultRoutes, recordingRoutes, callRoutes, integrationRoutes, reportRoutes, notificationRoutes, systemRoutes, governanceRoutes, peopleRoutes]) {
+  for (const routes of [authRoutes, organisationRoutes, candidateRoutes, examRoutes, sessionRoutes, invigilationRoutes, candidateAppRoutes, attemptRoutes, liveRoutes, resultRoutes, recordingRoutes, callRoutes, integrationRoutes, reportRoutes, notificationRoutes, systemRoutes, governanceRoutes, peopleRoutes, ssoRoutes]) {
     await app.register(async (scope) => routes(scope, deps));
   }
   return app;

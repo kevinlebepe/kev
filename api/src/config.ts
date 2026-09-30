@@ -96,6 +96,8 @@ export interface Config {
   publicBaseUrl: string;
   /** Address of the staff portal, used in staff invitation and password reset emails. */
   portalBaseUrl: string;
+  /** Where identity providers send people back after single sign on; register it with each provider. */
+  ssoCallbackUrl: string;
   /** How long before a session starts a candidate may download the exam package. */
   packagePrefetchMinutes: number;
   /** Extra time after the deadline in which a final save or submit is still accepted (network delay). */
@@ -150,6 +152,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     authRateLimitPerMinute: Number(process.env.AUTH_RATE_LIMIT_PER_MINUTE ?? 20),
     publicBaseUrl: process.env.PUBLIC_BASE_URL ?? 'http://localhost:5173',
     portalBaseUrl: process.env.PORTAL_BASE_URL ?? 'http://localhost:5174',
+    ssoCallbackUrl: process.env.SSO_CALLBACK_URL ?? `${process.env.PUBLIC_BASE_URL ?? 'http://localhost:5173'}/api/auth/sso/callback`,
     packagePrefetchMinutes: Number(process.env.PACKAGE_PREFETCH_MINUTES ?? 10),
     attemptGraceSeconds: Number(process.env.ATTEMPT_GRACE_SECONDS ?? 30),
     examSigning: loadSigningKey(),

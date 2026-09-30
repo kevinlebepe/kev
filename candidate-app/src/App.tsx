@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { request, resumeSession, signOut } from './lib/api';
+import { completeSso, request, resumeSession, signOut } from './lib/api';
 import { examFromSearch } from './lib/launch';
 import { onboardingRoute } from './lib/onboarding';
 import { SystemStatus } from './screens/SystemStatus';
@@ -56,9 +56,17 @@ export function App() {
     }
   }, []);
 
+  const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
     if (onboarding) return;
-    resumeSession().then((ok) => (ok ? load() : setScreen({ name: 'login' })));
+    // Back from single sign on: swap the one time code for a session, then tidy the address.
+    const params = new URLSearchParams(window.location.search);
+    const ssoCode = params.get('sso');
+    const ssoError = params.get('sso_error');
+    if (ssoCode || ssoError) window.history.replaceState(null, '', window.location.pathname);
+    if (ssoError) setNotice(ssoError);
+    const start = ssoCode ? completeSso(ssoCode).then(() => true, (err: Error) => (setNotice(err.message), false)) : resumeSession();
+    start.then((ok) => (ok ? load() : setScreen({ name: 'login' })));
   }, [load, onboarding]);
 
   const toSignIn = () => {
@@ -74,7 +82,7 @@ export function App() {
   if (onboarding?.kind === 'status') return <SystemStatus onDone={toSignIn} />;
 
   if (screen.name === 'starting') return <main className="centered">Starting…</main>;
-  if (screen.name === 'login') return <Login onSignedIn={load} onRegister={() => setOnboarding({ kind: 'register', organisation: null })} />;
+  if (screen.name === 'login') return <Login onSignedIn={load} notice={notice} onRegister={() => setOnboarding({ kind: 'register', organisation: null })} />;
   if (screen.name === 'exam') return <ExamView entitlement={screen.entitlement} onExit={load} />;
 
   return (

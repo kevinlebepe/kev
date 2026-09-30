@@ -152,6 +152,18 @@ export async function signInWithAccessCode(organisation: string, code: string): 
   storeRefresh(data.refreshToken);
 }
 
+/** Finishes single sign on: swaps the one time code the API handed back for tokens. */
+export async function completeSso(code: string): Promise<void> {
+  const res = await raw('POST', '/auth/sso/complete', { code }, null);
+  const data = await res.json().catch(() => undefined);
+  if (!res.ok) throw new ApiError(res.status, data?.error?.message ?? 'Sign in failed');
+  accessToken = data.accessToken;
+  storeRefresh(data.refreshToken);
+}
+
+/** Where to send the browser to sign in through the organisation's identity provider. */
+export const ssoStartUrl = (providerId: string) => `${BASE}/auth/sso/start?provider=${providerId}&app=candidate`;
+
 export async function completeMfa(mfaToken: string, code: string): Promise<void> {
   const res = await raw('POST', '/auth/mfa', { mfaToken, code }, null);
   const data = await res.json().catch(() => undefined);

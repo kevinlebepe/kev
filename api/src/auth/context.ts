@@ -91,7 +91,8 @@ export async function resolveAuth(db: Db, config: Config, req: FastifyRequest): 
     if (permissions.size) {
       const { rows: org } = await db.query<{ require_staff_mfa: boolean }>('SELECT require_staff_mfa FROM organisations WHERE id = $1', [claims.org]);
       mfaRequiredByOrganisation = Boolean(org[0]?.require_staff_mfa);
-      if (mfaRequiredByOrganisation && !user.mfa_enabled) {
+      // A provider the organisation trusts for two factor sign in counts as it.
+      if (mfaRequiredByOrganisation && !user.mfa_enabled && claims.amr !== 'sso_mfa') {
         // No staff access until two factor sign in is on. Candidate access is unaffected.
         mfaSetupRequired = true;
         permissions = new Set();

@@ -268,3 +268,4 @@ tr.flagged td { font-weight: 600; }
 .cases li.selected { outline: 3px solid var(--focus); }
 .pool { align-items: end; flex-wrap: wrap; gap: 0.5rem; }
 .logo-preview { max-height: 3rem; max-width: 10rem; border: 1px solid var(--border); border-radius: 6px; padding: 0.2rem; background: #fff; }
+.provider { margin: 0.5rem 0; }

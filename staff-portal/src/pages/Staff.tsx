@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActionButton, Badge, ErrorText, Field, Form, Loading, Page } from '../components/ui';
+import { ActionButton, Badge, Check, ErrorText, Field, Form, Loading, Page } from '../components/ui';
 import { API_BASE, request, sendFile } from '../lib/api';
 import { label } from '../lib/format';
 import { can, useMe } from '../lib/session';
@@ -109,6 +109,7 @@ function Security() {
         {org.data.allowAccessCodes ? 'Turn access codes off' : 'Allow access codes'}
       </ActionButton>
       <Branding colour={org.data.brandColour} hasLogo={org.data.hasLogo} slug={org.data.slug} onSaved={org.reload} />
+      <SingleSignOn />
     </section>
   );
 }
@@ -235,6 +236,124 @@ function Branding({ colour, hasLogo, slug, onSaved }: { colour: string | null; h
         )}
       </div>
       <ErrorText error={error} />
+    </>
+  );
+}
+
+interface Provider {
+  id: string;
+  name: string;
+  issuer: string;
+  clientId: string;
+  hasSecret: boolean;
+  forStaff: boolean;
+  forCandidates: boolean;
+  createCandidates: boolean;
+  trustMfa: boolean;
+  enabled: boolean;
+}
+
+/** Sign in through the organisation's own identity provider, with OpenID Connect (spec section 3). */
+function SingleSignOn() {
+  const me = useMe();
+  const list = useApi<{ callbackUrl: string; items: Provider[] }>(`/organisations/${me.organisationId}/identity-providers`);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ name: '', issuer: '', clientId: '', clientSecret: '', forStaff: true, forCandidates: true, createCandidates: false, trustMfa: true });
+  const toggle = async (p: Provider, patch: Partial<Provider>) => {
+    await request('PATCH', `/organisations/${me.organisationId}/identity-providers/${p.id}`, patch);
+    await list.reload();
+  };
+  return (
+    <>
+      <h3>Single sign on</h3>
+      <p className="muted small">
+        Let people sign in with your own identity provider, such as Microsoft Entra ID or Google Workspace, using OpenID Connect. Register this return address with the
+        provider: <code>{list.data?.callbackUrl}</code>
+      </p>
+      <ErrorText error={list.error} />
+      {list.data?.items.map((p) => (
+        <div key={p.id} className="card provider">
+          <div className="row spread">
+            <strong>{p.name}</strong>
+            <Badge value={p.enabled ? 'active' : 'paused'} />
+          </div>
+          <p className="muted small">
+            {p.issuer} · client {p.clientId} · {p.hasSecret ? 'secret stored' : 'no secret'}
+          </p>
+          <div className="row">
+            <Check label="Staff" checked={p.forStaff} onChange={(v) => toggle(p, { forStaff: v })} />
+            <Check label="Candidates" checked={p.forCandidates} onChange={(v) => toggle(p, { forCandidates: v })} />
+            <Check label="Register new candidates for approval" checked={p.createCandidates} onChange={(v) => toggle(p, { createCandidates: v })} />
+            <Check label="Trust its two factor sign in" checked={p.trustMfa} onChange={(v) => toggle(p, { trustMfa: v })} />
+          </div>
+          <div className="row">
+            <ActionButton className="small" onClick={() => toggle(p, { enabled: !p.enabled })}>
+              {p.enabled ? 'Turn off' : 'Turn on'}
+            </ActionButton>
+            <ActionButton
+              className="small danger"
+              confirm={`Remove ${p.name}? People who only sign in through it will need a password.`}
+              onClick={async () => {
+                await request('DELETE', `/organisations/${me.organisationId}/identity-providers/${p.id}`);
+                await list.reload();
+              }}
+            >
+              Remove
+            </ActionButton>
+          </div>
+        </div>
+      ))}
+      {adding ? (
+        <Form
+          submitText="Add identity provider"
+          onCancel={() => setAdding(false)}
+          onSubmit={async () => {
+            await request('POST', `/organisations/${me.organisationId}/identity-providers`, {
+              name: form.name.trim(),
+              issuer: form.issuer.trim(),
+              clientId: form.clientId.trim(),
+              ...(form.clientSecret ? { clientSecret: form.clientSecret } : {}),
+              forStaff: form.forStaff,
+              forCandidates: form.forCandidates,
+              createCandidates: form.createCandidates,
+              trustMfa: form.trustMfa,
+            });
+            setAdding(false);
+            await list.reload();
+          }}
+        >
+          <div className="grid2">
+            <Field label="Button text" hint="Shown as Sign in with …">
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required placeholder="University account" />
+            </Field>
+            <Field label="Issuer address" hint="For example https://login.microsoftonline.com/your-tenant-id/v2.0">
+              <input type="url" value={form.issuer} onChange={(e) => setForm({ ...form, issuer: e.target.value })} required />
+            </Field>
+            <Field label="Client ID">
+              <input value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} required />
+            </Field>
+            <Field label="Client secret" hint="Stored encrypted and never shown again.">
+              <input type="password" value={form.clientSecret} onChange={(e) => setForm({ ...form, clientSecret: e.target.value })} autoComplete="off" />
+            </Field>
+          </div>
+          <Check label="Staff may sign in with it" checked={form.forStaff} onChange={(v) => setForm({ ...form, forStaff: v })} />
+          <Check label="Candidates may sign in with it" checked={form.forCandidates} onChange={(v) => setForm({ ...form, forCandidates: v })} />
+          <Check
+            label="Register candidates it vouches for who are not yet on the list"
+            checked={form.createCandidates}
+            onChange={(v) => setForm({ ...form, createCandidates: v })}
+            hint="They wait for approval like anyone who registers."
+          />
+          <Check
+            label="Trust its own two factor sign in"
+            checked={form.trustMfa}
+            onChange={(v) => setForm({ ...form, trustMfa: v })}
+            hint="When your organisation requires two factor sign in for staff, those signing in through this provider are not asked for an ExamGuard code as well."
+          />
+        </Form>
+      ) : (
+        <button onClick={() => setAdding(true)}>Add an identity provider</button>
+      )}
     </>
   );
 }

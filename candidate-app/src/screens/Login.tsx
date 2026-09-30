@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useState } from 'react';
-import { API_BASE, completeMfa, request, signIn, signInWithAccessCode } from '../lib/api';
+import { API_BASE, completeMfa, request, signIn, signInWithAccessCode, ssoStartUrl } from '../lib/api';
 
 type Step = { name: 'password' } | { name: 'code'; mfaToken: string } | { name: 'forgot' } | { name: 'sent'; message: string } | { name: 'access-code' };
 
@@ -8,6 +8,7 @@ interface Branding {
   colour: string | null;
   logo: boolean;
   accessCodes: boolean;
+  sso: { id: string; name: string; forCandidates: boolean }[];
 }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{1,62}$/;
@@ -59,13 +60,13 @@ function useBranding(organisation: string): Branding | null {
   return branding;
 }
 
-export function Login({ onSignedIn, onRegister }: { onSignedIn: () => void; onRegister?: () => void }) {
+export function Login({ onSignedIn, onRegister, notice = null }: { onSignedIn: () => void; onRegister?: () => void; notice?: string | null }) {
   const [step, setStep] = useState<Step>({ name: 'password' });
   const [organisation, setOrganisation] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(notice);
   const [busy, setBusy] = useState(false);
   const [accessCode, setAccessCode] = useState('');
   const branding = useBranding(organisation);
@@ -252,6 +253,13 @@ export function Login({ onSignedIn, onRegister }: { onSignedIn: () => void; onRe
             Forgot your password?
           </button>
         </p>
+        {branding?.sso
+          .filter((p) => p.forCandidates)
+          .map((p) => (
+            <a key={p.id} className="button sso" href={ssoStartUrl(p.id)}>
+              Sign in with {p.name}
+            </a>
+          ))}
         {branding?.accessCodes && (
           <p className="help">
             <button type="button" className="link" onClick={() => setStep({ name: 'access-code' })}>

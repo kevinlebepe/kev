@@ -53,16 +53,19 @@ const accessCodeBody = z.object({ organisation: z.string().trim().min(1).max(100
 
 const hashCode = (code: string) => hashToken(code.toLowerCase().replace(/\s/g, ''));
 
-/** `until` caps the session, for a sign in that only holds for one exam. */
-async function issueTokens(q: Queryable, deps: AppDeps, userId: string, organisationId: string | null, until: Date | null = null) {
-  const accessToken = await signAccessToken(deps.config, { sub: userId, org: organisationId });
+/**
+ * `until` caps the session, for a sign in that only holds for one exam; `amr`
+ * records how the person signed in and is kept across refreshes.
+ */
+export async function issueTokens(q: Queryable, deps: AppDeps, userId: string, organisationId: string | null, until: Date | null = null, amr: string | null = null) {
+  const accessToken = await signAccessToken(deps.config, { sub: userId, org: organisationId, amr });
   let refreshToken: string | null = null;
   if (organisationId) {
     const { token, hash } = newOpaqueToken();
     await q.query(
-      `INSERT INTO refresh_tokens (user_id, organisation_id, token_hash, expires_at, hard_expires_at)
-       VALUES ($1, $2, $3, LEAST(now() + make_interval(secs => $4), $5::timestamptz), $5::timestamptz)`,
-      [userId, organisationId, hash, deps.config.refreshTokenTtlSeconds, until],
+      `INSERT INTO refresh_tokens (user_id, organisation_id, token_hash, expires_at, hard_expires_at, amr)
+       VALUES ($1, $2, $3, LEAST(now() + make_interval(secs => $4), $5::timestamptz), $5::timestamptz, $6)`,
+      [userId, organisationId, hash, deps.config.refreshTokenTtlSeconds, until, amr],
     );
     refreshToken = token;
   }
@@ -311,8 +314,9 @@ export async function authRoutes(app: FastifyInstance, deps: AppDeps) {
         revoked_at: Date | null;
         expired: boolean;
         hard_expires_at: Date | null;
+        amr: string | null;
       }>(
-        `SELECT id, user_id, organisation_id, revoked_at, expires_at < now() AS expired, hard_expires_at
+        `SELECT id, user_id, organisation_id, revoked_at, expires_at < now() AS expired, hard_expires_at, amr
            FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE`,
         [hashToken(body.refreshToken)],
       );
@@ -335,7 +339,7 @@ export async function authRoutes(app: FastifyInstance, deps: AppDeps) {
       }
       if (token.expired) throw unauthorized('Refresh token expired');
 
-      const issued = await issueTokens(tx, deps, token.user_id, token.organisation_id, token.hard_expires_at);
+      const issued = await issueTokens(tx, deps, token.user_id, token.organisation_id, token.hard_expires_at, token.amr);
       await tx.query(
         `UPDATE refresh_tokens SET revoked_at = now(),
                 replaced_by = (SELECT id FROM refresh_tokens WHERE token_hash = $2)
