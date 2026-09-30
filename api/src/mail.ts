@@ -153,6 +153,11 @@ export function render(row: Row, config: Config): Omit<MailMessage, 'to'> | null
         subject: `Recordings are missing: ${row.session_name ?? 'session'}`,
         text: `Hello\n\n${Number(row.payload.attempts ?? 0)} submissions in ${row.session_name ?? 'a session'} are still missing recording pieces a day after the exam. The recording health report at ${config.portalBaseUrl} lists them.${footer}`,
       };
+    case 'support_reply':
+      return {
+        subject: `Reply to your request: ${String(row.payload.summary ?? 'support')}`,
+        text: `Hello\n\n${org} has replied to your support request "${String(row.payload.summary ?? '')}".\n\n${signIn} and open Help to read it.${footer}`,
+      };
     case 'service_incident':
       return {
         subject: 'ExamGuard: a part of the service is not working',

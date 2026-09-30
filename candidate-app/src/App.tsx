@@ -3,6 +3,7 @@ import { request, resumeSession, signOut } from './lib/api';
 import { examFromSearch } from './lib/launch';
 import { onboardingRoute } from './lib/onboarding';
 import { SystemStatus } from './screens/SystemStatus';
+import { Help } from './screens/Help';
 import { AcceptInvitation, Register, ResetPassword, VerifyEmail } from './screens/Onboarding';
 import type { Entitlement } from './lib/types';
 import { currentBridge } from './device/bridge';
@@ -17,7 +18,8 @@ type Screen =
   | { name: 'login' }
   | { name: 'home' }
   | { name: 'check'; entitlement: Entitlement }
-  | { name: 'exam'; entitlement: Entitlement };
+  | { name: 'exam'; entitlement: Entitlement }
+  | { name: 'help'; preset?: { category?: string; entitlementId?: string } };
 
 export function App() {
   // A link from an onboarding email opens its screen before anything else.
@@ -79,15 +81,20 @@ export function App() {
     <div className="page">
       <header className="topbar">
         <span className="brand">EXAMGUARD</span>
-        <button
-          className="link"
-          onClick={async () => {
-            await signOut();
-            setScreen({ name: 'login' });
-          }}
-        >
-          Sign out
-        </button>
+        <span className="topbar-actions">
+          <button className="link" onClick={() => setScreen({ name: 'help' })}>
+            Help
+          </button>
+          <button
+            className="link"
+            onClick={async () => {
+              await signOut();
+              setScreen({ name: 'login' });
+            }}
+          >
+            Sign out
+          </button>
+        </span>
       </header>
       <main className="content">
         {error && (
@@ -95,8 +102,15 @@ export function App() {
             {error}
           </p>
         )}
-        {screen.name === 'check' ? (
-          <DeviceCheck entitlement={screen.entitlement} bridge={currentBridge()} onDone={load} />
+        {screen.name === 'help' ? (
+          <Help items={items} {...(screen.preset ? { preset: screen.preset } : {})} onBack={load} />
+        ) : screen.name === 'check' ? (
+          <DeviceCheck
+            entitlement={screen.entitlement}
+            bridge={currentBridge()}
+            onDone={load}
+            onSupport={() => setScreen({ name: 'help', preset: { category: 'device_check', entitlementId: screen.entitlement.id } })}
+          />
         ) : (
           <>
             <Entitlements

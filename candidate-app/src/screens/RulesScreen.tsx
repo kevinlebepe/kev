@@ -13,12 +13,15 @@ function joinWithAnd(items: string[]): string {
 // the exam is also what lets the browser enter full screen.
 export function RulesScreen({
   manifest,
+  notice = null,
   resuming,
   onStart,
   onBack,
   screenShare,
 }: {
   manifest: ExamManifest;
+  /** The organisation's own notice about monitoring and data; the candidate must agree to start. */
+  notice?: string | null;
   resuming: boolean;
   /** Set when the exam records the screen and this is a browser: sharing comes first, from its own click. */
   screenShare?: { shared: boolean; supported: boolean; request: () => Promise<string | null> };
@@ -30,6 +33,8 @@ export function RulesScreen({
   const security = manifest.config.security;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [agreed, setAgreed] = useState(false);
+  const needsAgreement = Boolean(notice) && !resuming;
   // The desktop application locks the whole window itself, so it needs no browser support.
   const cannotFullscreen = rules.fullscreen && !getDesktop() && !fullscreenSupported();
   const duration = manifest.config.timing.durationMinutes;
@@ -87,6 +92,18 @@ export function RulesScreen({
           {consequenceText(rules)}
         </p>
 
+        {needsAgreement && (
+          <section className="notice" aria-labelledby="notice-title">
+            <h3 id="notice-title">Notice from your organisation</h3>
+            <div className="notice-text" tabIndex={0}>
+              {notice}
+            </div>
+            <label className="check">
+              <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} /> I have read this notice and agree to it
+            </label>
+          </section>
+        )}
+
         {cannotFullscreen && (
           <p className="error" role="alert">
             This device or browser cannot show the exam in full screen. Use the ExamGuard desktop application or another browser.
@@ -119,7 +136,7 @@ export function RulesScreen({
               {busy ? 'Waiting…' : 'Share my screen'}
             </button>
           ) : (
-            <button className="primary" onClick={start} disabled={busy || cannotFullscreen}>
+            <button className="primary" onClick={start} disabled={busy || cannotFullscreen || (needsAgreement && !agreed)}>
               {busy ? 'Starting…' : `${resuming ? 'Continue' : 'Start'} exam${rules.fullscreen ? ' in full screen' : ''}`}
             </button>
           )}

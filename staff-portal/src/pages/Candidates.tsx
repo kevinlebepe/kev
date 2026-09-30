@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ActionButton, Badge, ErrorText, Field, Form, Loading, Page } from '../components/ui';
-import { request } from '../lib/api';
+import { download, request } from '../lib/api';
 import { formatDateTime, parseCandidateCsv } from '../lib/format';
 import { can, useMe } from '../lib/session';
 import { useApi } from '../lib/useApi';
@@ -52,6 +52,16 @@ export function Candidates() {
     await list.reload();
   }
 
+  // Erasure cannot be undone, so the owner types the email address back.
+  async function erase(c: Candidate) {
+    const typed = window.prompt(
+      `Erase ${c.fullName}? Their name, email, answers, recordings and files are removed for good, and their sign in account too if they use it nowhere else. Scores and the audit trail stay. Type their email address to confirm:`,
+    );
+    if (!typed) return;
+    await request('POST', `/candidates/${c.id}/erase`, { confirmEmail: typed.trim() });
+    await list.reload();
+  }
+
   return (
     <Page
       title="Candidates"
@@ -100,7 +110,7 @@ export function Candidates() {
               <th>Status</th>
               <th>Identity</th>
               <th>Added</th>
-              {can(me, 'candidate:approve') && <th>Actions</th>}
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -114,15 +124,22 @@ export function Candidates() {
                 </td>
                 <td className="muted small">{c.identityStatus.replaceAll('_', ' ')}</td>
                 <td className="muted small">{formatDateTime(c.createdAt)}</td>
-                {can(me, 'candidate:approve') && (
-                  <td className="row">
-                    {(ACTIONS[c.status] ?? []).map((a) => (
+                <td className="row">
+                  {can(me, 'candidate:approve') &&
+                    (ACTIONS[c.status] ?? []).map((a) => (
                       <ActionButton key={a} className={a === 'approve' ? 'primary small' : 'small'} onClick={() => act(c, a)}>
                         {a[0]!.toUpperCase() + a.slice(1)}
                       </ActionButton>
                     ))}
-                  </td>
-                )}
+                  <ActionButton className="small" onClick={() => download(`/candidates/${c.id}/export`, `candidate-${c.id}.json`)}>
+                    Export data
+                  </ActionButton>
+                  {can(me, 'organisation:manage_security') && !c.email.endsWith('@erased.invalid') && (
+                    <ActionButton className="small danger" onClick={() => erase(c)}>
+                      Erase
+                    </ActionButton>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

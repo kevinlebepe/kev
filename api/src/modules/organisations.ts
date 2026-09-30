@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { noticeHash } from '../notice.js';
 import type { AppDeps } from '../context.js';
 import { isUniqueViolation, withTransaction } from '../db.js';
 import { conflict, forbidden, notFound } from '../errors.js';
@@ -29,6 +30,8 @@ const updateOrganisationBody = z.object({
   requireStaffMfa: z.boolean().optional(),
   /** Days to keep recordings after submission; null keeps them until deleted by hand. */
   recordingRetentionDays: z.number().int().min(1).max(3650).nullable().optional(),
+  /** Shown to candidates before each exam; they must agree before starting. Null removes it. */
+  candidateNotice: z.string().trim().max(5000).nullable().optional(),
 });
 
 const staffRole = z.enum(['owner', 'admin', 'exam_manager', 'invigilator', 'reviewer', 'support']);
@@ -89,7 +92,7 @@ export async function organisationRoutes(app: FastifyInstance, deps: AppDeps) {
     if (auth.permissions.size === 0) throw forbidden();
     const { rows } = await db.query(
       `SELECT id, slug, name, mode, approved_email_domains AS "approvedEmailDomains", require_staff_mfa AS "requireStaffMfa",
-              recording_retention_days AS "recordingRetentionDays", created_at AS "createdAt"
+              recording_retention_days AS "recordingRetentionDays", candidate_notice AS "candidateNotice", created_at AS "createdAt"
          FROM organisations WHERE id = $1`,
       [id],
     );
@@ -107,10 +110,11 @@ export async function organisationRoutes(app: FastifyInstance, deps: AppDeps) {
             SET name = coalesce($2, name),
                 approved_email_domains = coalesce($3, approved_email_domains),
                 require_staff_mfa = coalesce($4, require_staff_mfa),
-                recording_retention_days = CASE WHEN $5::boolean THEN $6::int ELSE recording_retention_days END
+                recording_retention_days = CASE WHEN $5::boolean THEN $6::int ELSE recording_retention_days END,
+                candidate_notice = CASE WHEN $7::boolean THEN nullif($8::text, '') ELSE candidate_notice END
           WHERE id = $1
           RETURNING id, slug, name, mode, approved_email_domains AS "approvedEmailDomains", require_staff_mfa AS "requireStaffMfa",
-                    recording_retention_days AS "recordingRetentionDays"`,
+                    recording_retention_days AS "recordingRetentionDays", candidate_notice AS "candidateNotice"`,
         [
           id,
           body.name ?? null,
@@ -118,9 +122,19 @@ export async function organisationRoutes(app: FastifyInstance, deps: AppDeps) {
           body.requireStaffMfa ?? null,
           body.recordingRetentionDays !== undefined,
           body.recordingRetentionDays ?? null,
+          body.candidateNotice !== undefined,
+          body.candidateNotice ?? null,
         ],
       );
-      await audit(tx, { ...auditFrom(req), action: 'organisation.update', targetType: 'organisation', targetId: id, data: body });
+      // The notice itself can be long; the audit keeps its fingerprint.
+      const { candidateNotice, ...rest } = body;
+      await audit(tx, {
+        ...auditFrom(req),
+        action: 'organisation.update',
+        targetType: 'organisation',
+        targetId: id,
+        data: { ...rest, ...(candidateNotice !== undefined ? { candidateNoticeSha256: candidateNotice ? noticeHash(candidateNotice) : null } : {}) },
+      });
       return rows[0];
     });
   });

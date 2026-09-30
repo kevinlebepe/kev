@@ -43,6 +43,7 @@ export async function notificationRoutes(app: FastifyInstance, deps: AppDeps) {
         readAt: r.readAt,
         sessionId: typeof r.payload.sessionId === 'string' ? r.payload.sessionId : null,
         attemptId: typeof r.payload.attemptId === 'string' ? r.payload.attemptId : null,
+        caseId: typeof r.payload.caseId === 'string' ? r.payload.caseId : null,
         ...summarise(r.kind, r.payload, r.sessionName),
       })),
     };

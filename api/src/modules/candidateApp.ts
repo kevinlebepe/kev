@@ -6,6 +6,7 @@ import { authorize, requireCandidate, requireOrg } from '../auth/context.js';
 import { audit, auditFrom } from '../audit.js';
 import { notify } from '../notifications.js';
 import { notifyStaff } from '../alerts.js';
+import { noticeHash } from '../notice.js';
 import { examConfig } from '../examConfig.js';
 import { enforceClient } from '../client.js';
 import { evaluateReadiness, readinessReport } from '../readiness.js';
@@ -136,17 +137,19 @@ export async function candidateAppRoutes(app: FastifyInstance, deps: AppDeps) {
       signature: string;
       signing_key_id: string;
       platform: string | null;
+      candidate_notice: string | null;
     }>(
       `SELECT a.status, c.status AS candidate_status, s.id AS session_id, s.status AS session_status,
               v.id AS exam_version_id,
               s.starts_at - make_interval(mins => $4) AS not_before, s.ends_at AS not_after,
               now() < s.starts_at - make_interval(mins => $4) AS too_early, now() > s.ends_at AS too_late,
               v.manifest, v.manifest_sha256, v.signature, v.signing_key_id,
-              rc.report#>>'{os,platform}' AS platform
+              rc.report#>>'{os,platform}' AS platform, o.candidate_notice
          FROM exam_assignments a
          JOIN candidates c ON c.id = a.candidate_id
          JOIN sessions s ON s.id = a.session_id
          JOIN exam_versions v ON v.id = s.exam_version_id
+         JOIN organisations o ON o.id = a.organisation_id
          LEFT JOIN readiness_checks rc ON rc.id = a.last_check_id
         WHERE a.id = $1 AND a.candidate_id = $2 AND a.organisation_id = $3`,
       [id, auth.candidateId, auth.organisationId, config.packagePrefetchMinutes],
@@ -181,6 +184,8 @@ export async function candidateAppRoutes(app: FastifyInstance, deps: AppDeps) {
       keyId: config.examSigning.keyId,
       exam: { manifest: row.manifest, manifestSha256: row.manifest_sha256, signature: row.signature, keyId: row.signing_key_id },
       entitlement: { payload: entitlement, signature: signedEntitlement.signature },
+      // The organisation's notice to candidates (spec section 19); agreeing to it is required to start.
+      notice: row.candidate_notice ? { text: row.candidate_notice, sha256: noticeHash(row.candidate_notice) } : null,
     };
   });
 

@@ -13,6 +13,7 @@ import { COUNTED_EVENT_TYPES, decideAction, RULE_EVENT_TYPES, RULE_EVENTS } from
 import { idParams, page, pagination, parse } from '../validation.js';
 import { notify } from '../notifications.js';
 import { staffWith } from '../alerts.js';
+import { noticeHash } from '../notice.js';
 
 const answerResponse = z.union([
   z.strictObject({ optionId: z.uuid() }),
@@ -47,7 +48,11 @@ const eventsBody = z.object({
     .max(50),
 });
 
-const startBody = z.object({ assignmentId: z.uuid() });
+const startBody = z.object({
+  assignmentId: z.uuid(),
+  /** The fingerprint of the organisation's notice the candidate agreed to, when there is one. */
+  noticeSha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+});
 const heartbeatBody = z.object({ afterSeq: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0) });
 const saveBody = z.object({ answers: answersBatch.default([]), position: z.number().int().min(0).max(10_000).optional() });
 const submitBody = z.object({ answers: answersBatch.default([]) });
@@ -263,7 +268,7 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
 
   app.post('/attempts/start', async (req, reply) => {
     const auth = requireCandidate(req);
-    const { assignmentId } = parse(startBody, req.body);
+    const { assignmentId, noticeSha256 } = parse(startBody, req.body);
 
     const result = await withTransaction(db, async (tx) => {
       // Take the lock in its own statement. If the state were read in the same
@@ -291,6 +296,7 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
         platform: string | null;
         extra_minutes: number;
         question_ids: string[] | null;
+        candidate_notice: string | null;
       }>(
         `SELECT a.status, a.extra_minutes, c.status AS candidate_status, s.status AS session_status, s.starts_at, s.ends_at,
                 s.exam_version_id, v.manifest->'config' AS config,
@@ -300,7 +306,8 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
                 now() > s.ends_at AS after_end,
                 now() > s.starts_at + make_interval(mins => coalesce((v.manifest#>>'{config,timing,startWindowMinutes}')::int, 15)
                                                              + coalesce((v.manifest#>>'{config,timing,lateEntryMinutes}')::int, 0)) AS after_window,
-                rc.report#>>'{os,platform}' AS platform
+                rc.report#>>'{os,platform}' AS platform,
+                (SELECT candidate_notice FROM organisations WHERE id = a.organisation_id) AS candidate_notice
            FROM exam_assignments a
            JOIN candidates c ON c.id = a.candidate_id
            JOIN sessions s ON s.id = a.session_id
@@ -335,6 +342,9 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
 
       const parsed = examConfig.parse(row.config ?? {});
       enforceClient(req, parsed, row.platform);
+      // The candidate must have agreed to the notice as it stands now.
+      const notice = row.candidate_notice ? noticeHash(row.candidate_notice) : null;
+      if (notice && noticeSha256 !== notice) throw conflict('Read and agree to the notice before starting. It may have changed since you opened it.');
       const duration = parsed.timing.durationMinutes;
       if (!duration) throw conflict('This exam has no duration configured');
 
@@ -351,7 +361,7 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
       await tx.query(`UPDATE exam_assignments SET status = 'active' WHERE id = $1`, [assignmentId]);
       await tx.query(
         `INSERT INTO events (organisation_id, attempt_id, type, severity, occurred_at, data) VALUES ($1, $2, 'attempt_started', 'info', now(), $3)`,
-        [auth.organisationId, attemptId, { ip: req.ip }],
+        [auth.organisationId, attemptId, { ip: req.ip, ...(notice ? { noticeAgreed: notice } : {}) }],
       );
       await audit(tx, { ...auditFrom(req), action: 'attempt.start', targetType: 'attempt', targetId: attemptId });
       return { created: true, view: await attemptView(tx, attemptId) };

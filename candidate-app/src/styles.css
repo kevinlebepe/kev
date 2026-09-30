@@ -205,3 +205,16 @@ a.button.primary { background: var(--accent); border-color: var(--accent); color
 .status-list li.ok strong { color: var(--ok); }
 .status-list li.degraded strong { color: var(--warn); }
 .status-list li.down strong { color: var(--bad); }
+
+/* The organisation's notice before an exam */
+.notice { border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem 1rem; margin: 1rem 0; }
+.notice h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+.notice-text { max-height: 12rem; overflow-y: auto; white-space: pre-wrap; margin-bottom: 0.75rem; }
+
+/* Help */
+.cases { list-style: none; padding: 0; display: grid; gap: 0.6rem; }
+.cases li { border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+.cases blockquote { margin: 0.4rem 0 0; padding-left: 0.75rem; border-left: 3px solid var(--border); }
+.topbar-actions { display: flex; gap: 1rem; }
+label.check { display: flex; gap: 0.6rem; align-items: center; margin: 0; }
+label.check input { width: auto; margin: 0; flex: none; }

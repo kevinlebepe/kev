@@ -14,10 +14,13 @@ export function DeviceCheck({
   entitlement,
   bridge,
   onDone,
+  onSupport,
 }: {
   entitlement: Entitlement;
   bridge: DeviceBridge;
   onDone: () => void;
+  /** Opens Help with this exam and the device check chosen. */
+  onSupport?: () => void;
 }) {
   const [result, setResult] = useState<Result | null>(
     entitlement.lastChecks ? { passed: !!entitlement.lastCheckPassed, status: entitlement.status, checks: entitlement.lastChecks } : null,
@@ -90,8 +93,9 @@ export function DeviceCheck({
           {running ? 'Checking…' : 'Run full test'}
         </button>
         <button onClick={onDone}>Done</button>
+        {onSupport && <button onClick={onSupport}>Contact support</button>}
       </div>
-      <p className="help">Something failing that you cannot fix? Contact your organisation’s exam support before exam day.</p>
+      <p className="help">Something failing that you cannot fix? Contact support before exam day.</p>
     </section>
   );
 }

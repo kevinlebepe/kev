@@ -60,7 +60,7 @@ export function Staff() {
 /** The organisation's sign in policy. Owners only. */
 function Security() {
   const me = useMe();
-  const org = useApi<{ requireStaffMfa: boolean; recordingRetentionDays: number | null }>(`/organisations/${me.organisationId}`);
+  const org = useApi<{ requireStaffMfa: boolean; recordingRetentionDays: number | null; candidateNotice: string | null }>(`/organisations/${me.organisationId}`);
   if (!org.data) return <ErrorText error={org.error} />;
   const on = org.data.requireStaffMfa;
   return (
@@ -86,6 +86,7 @@ function Security() {
       </ActionButton>
       <p className="muted small">After 5 wrong passwords or codes in a row, an account is locked for 15 minutes. Anyone can reset a forgotten password by email.</p>
       <Retention current={org.data.recordingRetentionDays} onSaved={org.reload} />
+      <CandidateNotice current={org.data.candidateNotice} onSaved={org.reload} />
     </section>
   );
 }
@@ -108,6 +109,37 @@ function Retention({ current, onSaved }: { current: number | null; onSaved: () =
       >
         <input type="number" min={1} max={3650} value={days} onChange={(e) => setDays(e.target.value)} />
       </Field>
+    </Form>
+  );
+}
+
+/** The organisation's own notice to candidates about monitoring and their data (spec section 19). */
+function CandidateNotice({ current, onSaved }: { current: string | null; onSaved: () => void }) {
+  const me = useMe();
+  const [text, setText] = useState(current ?? '');
+  const [saved, setSaved] = useState(false);
+  return (
+    <Form
+      submitText="Save notice"
+      onSubmit={async () => {
+        setSaved(false);
+        await request('PATCH', `/organisations/${me.organisationId}`, { candidateNotice: text.trim() ? text.trim() : null });
+        setSaved(true);
+        onSaved();
+      }}
+    >
+      <h3>Notice to candidates</h3>
+      <Field
+        label="Shown before every exam"
+        hint="For example what is recorded, why, who can see it and for how long. Candidates must tick that they agree before they can start, and their agreement is recorded with the exact text. Leave empty for no notice."
+      >
+        <textarea rows={6} maxLength={5000} value={text} onChange={(e) => setText(e.target.value)} />
+      </Field>
+      {saved && (
+        <p className="banner ok" role="status">
+          Notice saved. Candidates starting from now see this text.
+        </p>
+      )}
     </Form>
   );
 }

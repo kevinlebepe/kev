@@ -318,6 +318,7 @@ interface RecordingsData {
 const STREAM_TEXT: Record<string, string> = { camera: 'Camera', screen: 'Screen', audio: 'Microphone' };
 
 function Recordings({ attemptId }: { attemptId: string }) {
+  const me = useMe();
   const rec = useApi<RecordingsData>(`/attempts/${attemptId}/recordings`);
   const d = rec.data;
   if (rec.error) return <ErrorText error={rec.error} />;
@@ -349,7 +350,7 @@ function Recordings({ attemptId }: { attemptId: string }) {
           ) : (
             <div className="chunks">
               {s.chunks.map((c) => (
-                <Chunk key={c.id} id={c.id} contentType={c.contentType} label={`${formatTime(c.startTime)}`} />
+                <Chunk key={c.id} id={c.id} contentType={c.contentType} label={`${formatTime(c.startTime)}`} canDownload={can(me, 'recording:download')} />
               ))}
             </div>
           )}

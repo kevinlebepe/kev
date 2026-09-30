@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ActionButton, Badge, ErrorText, Loading, Page, Stat } from '../components/ui';
-import { download } from '../lib/api';
+import { download, request } from '../lib/api';
+import { can, useMe } from '../lib/session';
 import { formatDateTime, formatDuration, label } from '../lib/format';
 import { href } from '../lib/router';
 import { useApi } from '../lib/useApi';
@@ -552,10 +553,14 @@ interface AttemptReportData {
   evidence: { expected: string[]; complete: boolean } | null;
   offline: { interruptions: number; totalSeconds: number };
   timeline: { type: string; severity: string; occurredAt: string; data: Record<string, unknown>; by: string | null }[];
+  holdReason: string | null;
+  heldAt: string | null;
+  heldBy: string | null;
 }
 
 /** One attempt, in full, laid out to print (spec section 18, candidate attempt report). */
 export function AttemptReport({ attemptId }: { attemptId: string }) {
+  const me = useMe();
   const r = useApi<AttemptReportData>(`/attempts/${attemptId}/report`);
   const d = r.data;
   return (
@@ -610,6 +615,44 @@ export function AttemptReport({ attemptId }: { attemptId: string }) {
               <dd>{!d.evidence ? 'Not yet submitted' : d.evidence.expected.length === 0 ? 'Not recorded' : d.evidence.complete ? 'Complete' : 'Incomplete'}</dd>
               <dt>Time offline</dt>
               <dd>{d.offline.interruptions ? `${d.offline.interruptions} times, ${formatDuration(d.offline.totalSeconds * 1000)} in all` : 'None'}</dd>
+              <dt>Hold</dt>
+              <dd>
+                {d.holdReason ? (
+                  <>
+                    <Badge value="on hold" tone="warn" /> {d.holdReason}, by {d.heldBy} on {formatDateTime(d.heldAt)}. Recordings and files are kept until the hold is lifted.
+                  </>
+                ) : (
+                  'None: recordings follow the retention period'
+                )}
+                {can(me, 'result:release') && (
+                  <div>
+                    {d.holdReason ? (
+                      <ActionButton
+                        className="small"
+                        confirm="Lift the hold? The recordings then follow the retention period again."
+                        onClick={async () => {
+                          await request('DELETE', `/attempts/${attemptId}/hold`);
+                          await r.reload();
+                        }}
+                      >
+                        Lift the hold
+                      </ActionButton>
+                    ) : (
+                      <ActionButton
+                        className="small"
+                        onClick={async () => {
+                          const reason = window.prompt('Why hold this attempt? For example an appeal reference. Its recordings and files are then kept until the hold is lifted.');
+                          if (!reason?.trim()) return;
+                          await request('POST', `/attempts/${attemptId}/hold`, { reason: reason.trim() });
+                          await r.reload();
+                        }}
+                      >
+                        Hold for an appeal or investigation
+                      </ActionButton>
+                    )}
+                  </div>
+                )}
+              </dd>
             </dl>
 
             <h2>Answers</h2>

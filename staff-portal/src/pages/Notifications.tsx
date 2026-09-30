@@ -13,6 +13,7 @@ export interface NotificationItem {
   readAt: string | null;
   sessionId: string | null;
   attemptId: string | null;
+  caseId: string | null;
 }
 export interface Inbox {
   unread: number;
@@ -21,6 +22,7 @@ export interface Inbox {
 
 /** Where a notification leads: the attempt's report, or the session. */
 function target(n: NotificationItem): string | null {
+  if (n.caseId) return href('support', n.caseId);
   if (n.attemptId) return href('report', n.attemptId);
   if (n.sessionId) return href('sessions', n.sessionId);
   return null;

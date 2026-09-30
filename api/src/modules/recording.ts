@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppDeps } from '../context.js';
 import { withTransaction } from '../db.js';
-import { badRequest, conflict, notFound } from '../errors.js';
+import { badRequest, conflict, forbidden, notFound } from '../errors.js';
 import { authorize, requireCandidate, requireOrg } from '../auth/context.js';
 import { audit, auditFrom } from '../audit.js';
 import { evidenceState, expectedStreams, type StreamType, verifySubmission } from '../recording.js';
@@ -180,7 +180,7 @@ export async function recordingRoutes(app: FastifyInstance, deps: AppDeps) {
     const { id, fileId } = parse(markingFileParams, req.params);
     const { rows } = await db.query<{ storage_key: string; content_type: string; file_name: string }>(
       `SELECT f.storage_key, f.content_type, f.file_name FROM attempt_files f JOIN attempts at ON at.id = f.attempt_id
-        WHERE f.id = $1 AND f.attempt_id = $2 AND at.organisation_id = $3 AND at.status <> 'active'`,
+        WHERE f.id = $1 AND f.attempt_id = $2 AND at.organisation_id = $3 AND at.status <> 'active' AND f.deleted_at IS NULL`,
       [fileId, id, auth.organisationId],
     );
     if (!rows[0]) throw notFound('File');
@@ -260,11 +260,15 @@ export async function recordingRoutes(app: FastifyInstance, deps: AppDeps) {
     return { attemptId: id, submission: rows[0].submission, evidence: state, streams, deletedPieces: removed[0]!.n };
   });
 
+  // Every look at a recording is itself recorded (spec section 19). Saving a
+  // copy needs its own permission.
   app.get('/recording-chunks/:id', { preHandler: authorize('recording:view') }, async (req, reply) => {
     const auth = requireOrg(req);
     const { id } = parse(idParams, req.params);
-    const { rows } = await db.query<{ storage_key: string; content_type: string }>(
-      `SELECT rc.storage_key, rc.content_type FROM recording_chunks rc
+    const { download } = parse(z.object({ download: z.enum(['0', '1']).default('0') }), req.query);
+    if (download === '1' && !auth.permissions.has('recording:download')) throw forbidden('Missing permission: recording:download');
+    const { rows } = await db.query<{ storage_key: string; content_type: string; attempt_id: string; stream_type: string; sequence: number }>(
+      `SELECT rc.storage_key, rc.content_type, rs.attempt_id, rs.stream_type, rc.sequence FROM recording_chunks rc
          JOIN recording_streams rs ON rs.id = rc.stream_id
          JOIN attempts at ON at.id = rs.attempt_id
         WHERE rc.id = $1 AND at.organisation_id = $2 AND rc.upload_state = 'uploaded' AND rc.retention_state = 'retained'`,
@@ -273,6 +277,20 @@ export async function recordingRoutes(app: FastifyInstance, deps: AppDeps) {
     if (!rows[0]) throw notFound('Recording');
     const object = await store.get(rows[0].storage_key);
     if (!object) throw notFound('Recording');
+    const r = rows[0];
+    await withTransaction(db, (tx) =>
+      audit(tx, {
+        ...auditFrom(req),
+        action: download === '1' ? 'recording.download' : 'recording.view',
+        targetType: 'attempt',
+        targetId: r.attempt_id,
+        data: { chunkId: id, stream: r.stream_type, sequence: r.sequence },
+      }),
+    );
+    if (download === '1') {
+      const ext = r.content_type.includes('webm') ? 'webm' : r.content_type.includes('mp4') ? 'mp4' : r.content_type.includes('jpeg') ? 'jpg' : 'bin';
+      reply.header('content-disposition', `attachment; filename="${r.attempt_id}-${r.stream_type}-${r.sequence}.${ext}"`);
+    }
     return reply
       .header('content-type', rows[0].content_type)
       .header('content-length', object.size)

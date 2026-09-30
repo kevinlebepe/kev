@@ -92,7 +92,10 @@ export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; on
         return 'Full screen is required for this exam and was blocked. Allow full screen for this site and try again.';
       }
       try {
-        const attempt = await request<AttemptView>('POST', '/attempts/start', { assignmentId: entitlement.id });
+        const attempt = await request<AttemptView>('POST', '/attempts/start', {
+          assignmentId: entitlement.id,
+          ...(pkg.notice ? { noticeSha256: pkg.notice.sha256 } : {}),
+        });
         const active = attempt.status === 'active';
         const local = active ? await store.load<LocalState>(attempt.id) : null;
         const localEvents = active ? await store.load<PendingEvent[]>(`${attempt.id}:events`) : null;
@@ -129,6 +132,7 @@ export function ExamView({ entitlement, onExit }: { entitlement: Entitlement; on
     return (
       <RulesScreen
         manifest={state.pkg.exam.manifest}
+        notice={state.pkg.notice?.text ?? null}
         resuming={entitlement.status === 'active'}
         onStart={() => begin(state.pkg)}
         onBack={onExit}

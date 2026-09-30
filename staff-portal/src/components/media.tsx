@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchBlob } from '../lib/api';
+import { download, fetchBlob } from '../lib/api';
 
 /**
  * Loads a protected file into an object URL. Recordings need the signed in
@@ -40,19 +40,38 @@ export function Snapshot({ attemptId, at }: { attemptId: string; at: string | nu
   return <img className="snapshot" src={url} alt="Latest camera picture of the candidate" />;
 }
 
-export function Chunk({ id, contentType, label }: { id: string; contentType: string; label: string }) {
+/** One recorded piece: played on demand. Each play is recorded in the audit log; saving a copy needs its own permission. */
+export function Chunk({ id, contentType, label, canDownload = false }: { id: string; contentType: string; label: string; canDownload?: boolean }) {
   const [open, setOpen] = useState(false);
   const { url, state } = useBlobUrl(open ? `/recording-chunks/${id}` : null);
+  const save = canDownload ? (
+    <button className="small link" onClick={() => void download(`/recording-chunks/${id}?download=1`, `recording-${label}`)} aria-label={`Download ${label}`}>
+      Download
+    </button>
+  ) : null;
   if (!open) {
     return (
-      <button className="small" onClick={() => setOpen(true)}>
-        {label}
-      </button>
+      <span className="row">
+        <button className="small" onClick={() => setOpen(true)}>
+          {label}
+        </button>
+        {save}
+      </span>
     );
   }
   if (state === 'error' || state === 'none') return <span className="error small">Could not load {label}</span>;
   if (!url) return <span className="muted small">Loading {label}…</span>;
-  if (contentType.startsWith('image/')) return <img className="frame" src={url} alt={label} />;
-  if (contentType.startsWith('audio/')) return <audio controls src={url} aria-label={label} />;
-  return <video className="clip" controls src={url} aria-label={label} />;
+  const player = contentType.startsWith('image/') ? (
+    <img className="frame" src={url} alt={label} />
+  ) : contentType.startsWith('audio/') ? (
+    <audio controls src={url} aria-label={label} />
+  ) : (
+    <video className="clip" controls src={url} aria-label={label} />
+  );
+  return (
+    <span className="stack">
+      {player}
+      {save}
+    </span>
+  );
 }

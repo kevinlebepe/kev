@@ -56,6 +56,8 @@ export function summarise(kind: string, payload: Record<string, unknown>, sessio
       };
     case 'evidence_incomplete':
       return { title: 'Recordings are missing', body: `${n('attempts')} submissions in ${session} are still missing recording pieces a day after the exam.` };
+    case 'support_case_opened':
+      return { title: 'New support request', body: `${String(payload.summary ?? '')} (${String(payload.category ?? 'other').replaceAll('_', ' ')})` };
     case 'service_incident':
       return { title: 'Service problem', body: String(payload.message ?? 'Part of the platform is not working.') };
     default:

@@ -109,7 +109,6 @@ export async function sendBlob(path: string, blob: Blob, headers: Record<string,
   }
 }
 
-/** Signs in with a password. With two factor sign in on, returns a ticket for the code step instead. */
 /** Like sendBlob, returning the JSON reply. */
 export async function sendBlobJson<T>(path: string, blob: Blob, headers: Record<string, string>): Promise<T> {
   const h = { 'content-type': blob.type || 'application/octet-stream', ...headers };
@@ -120,6 +119,18 @@ export async function sendBlobJson<T>(path: string, blob: Blob, headers: Record<
   return data as T;
 }
 
+/** Downloads a file the signed in candidate may read, such as their data export. */
+export async function fetchBlob(path: string): Promise<Blob> {
+  let res = await raw('GET', path);
+  if (res.status === 401 && (await refresh())) res = await raw('GET', path);
+  if (!res.ok) {
+    const data = await res.json().catch(() => undefined);
+    throw new ApiError(res.status, data?.error?.message ?? `Download failed (${res.status})`);
+  }
+  return res.blob();
+}
+
+/** Signs in with a password. With two factor sign in on, returns a ticket for the code step instead. */
 export async function signIn(organisation: string, email: string, password: string): Promise<{ mfaToken?: string }> {
   const res = await raw('POST', '/auth/login', { organisation, email, password }, null);
   const data = await res.json().catch(() => undefined);

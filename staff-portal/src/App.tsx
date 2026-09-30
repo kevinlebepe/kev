@@ -15,6 +15,7 @@ import { Audit } from './pages/Audit';
 import { Integrations } from './pages/Integrations';
 import { AttemptReport, Reports } from './pages/Reports';
 import { Notifications, NotificationsLink } from './pages/Notifications';
+import { Support } from './pages/Support';
 import { Account, TwoFactorRequired } from './pages/Account';
 import { AcceptStaffInvitation, ResetPassword } from './pages/Public';
 
@@ -32,6 +33,7 @@ const NAV: NavItem[] = [
   { path: 'reports', text: 'Reports', permission: 'report:view' },
   { path: 'candidates', text: 'Candidates', permission: 'candidate:view' },
   { path: 'invigilators', text: 'Invigilators', permission: 'invigilator:create' },
+  { path: 'support', text: 'Support', permission: 'support:manage' },
   { path: 'staff', text: 'Staff', permission: 'organisation:manage_users' },
   { path: 'integrations', text: 'Integrations', permission: 'organisation:manage_users' },
   { path: 'audit', text: 'Audit log', permission: 'audit:view' },
@@ -164,6 +166,8 @@ function render(section: string | undefined, id: string | undefined, sub: string
       return <Reports />;
     case 'notifications':
       return <Notifications />;
+    case 'support':
+      return <Support {...(id ? { caseId: id } : {})} />;
     case 'report':
       return id ? <AttemptReport attemptId={id} /> : <Reports />;
     case 'integrations':

@@ -260,3 +260,9 @@ tr.flagged td { font-weight: 600; }
 .incident { border-left: 4px solid var(--border); padding: 0.3rem 0.6rem; }
 .incident.high { border-color: var(--bad); }
 .incident.warning { border-color: var(--warn); }
+
+/* Support */
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 1rem; align-items: start; }
+@media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
+.cases { list-style: none; padding: 0; display: grid; gap: 0.5rem; }
+.cases li.selected { outline: 3px solid var(--focus); }

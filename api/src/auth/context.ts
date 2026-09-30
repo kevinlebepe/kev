@@ -22,7 +22,8 @@ export type PermissionKey =
   | 'result:mark'
   | 'organisation:manage_users'
   | 'organisation:manage_security'
-  | 'audit:view';
+  | 'audit:view'
+  | 'support:manage';
 
 export interface AuthContext {
   userId: string;

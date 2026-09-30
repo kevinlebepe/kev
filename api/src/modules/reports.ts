@@ -441,8 +441,10 @@ export async function reportRoutes(app: FastifyInstance, deps: AppDeps) {
               json_build_object('id', s.id, 'name', s.name, 'startsAt', s.starts_at, 'endsAt', s.ends_at) AS session,
               a.extra_minutes AS "extraMinutes",
               sub.status AS "submissionStatus", sub.package_sha256 AS "packageSha256", sub.verified_at AS "verifiedAt",
-              r.status AS "resultStatus", r.released_at AS "releasedAt"
+              r.status AS "resultStatus", r.released_at AS "releasedAt",
+              at.hold_reason AS "holdReason", at.held_at AS "heldAt", hu.display_name AS "heldBy"
          FROM attempts at
+         LEFT JOIN users hu ON hu.id = at.held_by
          JOIN exam_assignments a ON a.id = at.assignment_id
          JOIN candidates c ON c.id = a.candidate_id
          JOIN sessions s ON s.id = a.session_id

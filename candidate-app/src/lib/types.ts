@@ -71,6 +71,8 @@ export interface ExamPackage {
     payload: { assignmentId: string; manifestSha256: string; notBefore: string; notAfter: string };
     signature: string;
   };
+  /** The organisation's notice to candidates, which must be agreed to before starting. */
+  notice?: { text: string; sha256: string } | null;
 }
 
 export type AnswerResponse = { optionId: string } | { optionIds: string[] } | { text: string } | { fileId: string; name?: string };
