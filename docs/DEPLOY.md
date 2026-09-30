@@ -1,5 +1,7 @@
 # Putting ExamGuard online at invigilator.bakwenasa.co.za
 
+If you use Render, follow [RENDER.md](RENDER.md) instead: it sets everything up from the repository in one go.
+
 This guide puts the two websites on your domains.co.za hosting and the API where it can run. The layout:
 
 | Address | What it is | Where it runs |

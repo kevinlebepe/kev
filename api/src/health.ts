@@ -146,7 +146,8 @@ export async function checkHealth(db: Db, config: Config, store: ObjectStore | u
       );
       const m = mail[0]!;
       if (!config.smtpUrl && process.env.NODE_ENV === 'production') {
-        out.push({ name: 'email', status: 'down', message: 'No mail server is configured, so no email is sent.', detail: m });
+        // A setup gap rather than an outage: invitations and reminders are not sent until SMTP_URL is set.
+        out.push({ name: 'email', status: 'degraded', message: 'No mail server is set up (SMTP_URL), so no email is sent: invitations, reminders and results notices will not arrive.', detail: m });
       } else if ((m.oldest ?? 0) > 15 * 60 || m.failed > 0) {
         out.push({
           name: 'email',

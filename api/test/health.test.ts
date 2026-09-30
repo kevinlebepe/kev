@@ -31,6 +31,18 @@ describe('health checks', () => {
     expect(find(withTurn, 'media')?.status).toBe('ok');
   });
 
+  it('calls missing email a limit, not an outage, so the public page stays calm', async () => {
+    const before = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const email = find(await checkHealth(h.db, { ...h.config, smtpUrl: null }, memoryStore()), 'email')!;
+      expect(email.status).toBe('degraded');
+      expect(email.message).toContain('SMTP_URL');
+    } finally {
+      process.env.NODE_ENV = before;
+    }
+  });
+
   it('notices a background job that has stopped running or keeps failing', async () => {
     await trackJob(h.db, 'expiry', async () => undefined);
     await h.db.query(`UPDATE job_runs SET last_finished_at = now() - interval '1 hour', last_started_at = now() - interval '1 hour' WHERE name = 'expiry'`);

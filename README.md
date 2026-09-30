@@ -9,7 +9,7 @@ The repository holds four applications:
 * **`candidate-app/`**: the website candidates use. They accept an invitation, register or sign in through their organisation, run the device check, agree to the organisation's notice, sit the exam with autosave, a countdown and the exam rules, are recorded when the exam asks for it, receive messages and calls from the invigilator, ask for help, download their data, and see released results. A public status page shows whether the service is working.
 * **`desktop-app/`**: the ExamGuard desktop application for Windows, macOS and Linux. It shows the candidate screens in a locked window: kiosk and full screen, always on top, screen capture blocked, closing and shortcuts intercepted, other screens, virtual machines and screen sharing programs detected. Exams can require it on laptops and desktops, while phones, tablets and Chromebooks use the browser.
 
-See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for how each part of the specification is covered, and for what is not done, [docs/DEPLOY.md](docs/DEPLOY.md) for putting it online at your own address, and [docs/OPERATIONS.md](docs/OPERATIONS.md) for running it in production and on exam day.
+See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for how each part of the specification is covered, and for what is not done, [docs/RENDER.md](docs/RENDER.md) for putting it online with Render (or [docs/DEPLOY.md](docs/DEPLOY.md) for other hosting), and [docs/OPERATIONS.md](docs/OPERATIONS.md) for running it in production and on exam day.
 
 | Staff portal: session | Live console | Live video | Marking with the recording |
 |---|---|---|---|
