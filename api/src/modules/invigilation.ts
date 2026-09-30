@@ -5,7 +5,7 @@ import { isConstraint, isUniqueViolation, type Tx, withTransaction } from '../db
 import { badRequest, conflict, notFound } from '../errors.js';
 import { authorize, requireOrg } from '../auth/context.js';
 import { audit, auditFrom } from '../audit.js';
-import { notify } from '../notifications.js';
+import { notifyStaff } from '../alerts.js';
 import { findOrCreateUser, roleIdByKey } from '../users.js';
 import { inviteStaff } from '../userTokens.js';
 import { allocate, liveStatus, PLATFORM_MAX_CANDIDATES_PER_INVIGILATOR } from '../allocation.js';
@@ -238,11 +238,12 @@ export async function invigilationRoutes(app: FastifyInstance, deps: AppDeps) {
       });
       if (plan.unassigned.length) {
         // All invigilators are full: candidates wait in the unassigned queue and the administrator is alerted.
-        await notify(tx, {
+        await notifyStaff(tx, {
           organisationId: auth.organisationId,
+          permission: 'session:manage',
           kind: 'invigilator_capacity_alert',
-          recipientUserId: auth.userId,
           payload: { sessionId: body.sessionId, unassigned: plan.unassigned.length },
+          email: true,
         });
         await audit(tx, {
           ...auditFrom(req),

@@ -14,6 +14,7 @@ import { Staff } from './pages/Staff';
 import { Audit } from './pages/Audit';
 import { Integrations } from './pages/Integrations';
 import { AttemptReport, Reports } from './pages/Reports';
+import { Notifications, NotificationsLink } from './pages/Notifications';
 import { Account, TwoFactorRequired } from './pages/Account';
 import { AcceptStaffInvitation, ResetPassword } from './pages/Public';
 
@@ -103,6 +104,9 @@ export function App() {
                   Overview
                 </a>
               </li>
+              <li>
+                <NotificationsLink current={section === 'notifications'} />
+              </li>
               {nav.map((n) => (
                 <li key={n.path}>
                   <a href={href(n.path)} aria-current={section === n.path ? 'page' : undefined}>
@@ -158,6 +162,8 @@ function render(section: string | undefined, id: string | undefined, sub: string
       return <Audit />;
     case 'reports':
       return <Reports />;
+    case 'notifications':
+      return <Notifications />;
     case 'report':
       return id ? <AttemptReport attemptId={id} /> : <Reports />;
     case 'integrations':

@@ -6,6 +6,7 @@ import type { AnswerKey, StoredAnswer } from './marking.js';
 import { recomputeResult } from './results.js';
 import { expectedStreams, verifySubmission } from './recording.js';
 import { enqueueWebhook } from './webhooks.js';
+import { notify } from './notifications.js';
 import { canonicalJson, signManifest } from './signing.js';
 
 export type SubmittedBy = 'candidate' | 'timer' | 'system';
@@ -121,6 +122,19 @@ export async function finalizeAttempt(
     ],
   );
   await enqueueWebhook(tx, attempt.organisation_id, 'attempt.submitted', await submittedPayload(tx, attemptId));
+  // The candidate's copy of the receipt, by email (spec section 20, submission received).
+  const { rows: who } = await tx.query<{ user_id: string | null; email: string; session_id: string }>(
+    `SELECT c.user_id, c.email, a.session_id FROM exam_assignments a JOIN candidates c ON c.id = a.candidate_id WHERE a.id = $1`,
+    [attempt.assignment_id],
+  );
+  await notify(tx, {
+    organisationId: attempt.organisation_id,
+    kind: 'submission_received',
+    channel: 'email',
+    recipientUserId: who[0]!.user_id,
+    recipientEmail: who[0]!.email,
+    payload: { sessionId: who[0]!.session_id, receiptId: fields.receiptId, submittedAt, answered: answers.size, total },
+  });
   await audit(tx, {
     organisationId: attempt.organisation_id,
     actorUserId: actor.userId,

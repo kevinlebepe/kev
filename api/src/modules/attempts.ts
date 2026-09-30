@@ -11,6 +11,8 @@ import { enforceClient } from '../client.js';
 import { existingReceipt, finalizeAttempt, type Receipt } from '../attempts.js';
 import { COUNTED_EVENT_TYPES, decideAction, RULE_EVENT_TYPES, RULE_EVENTS } from '../rules.js';
 import { idParams, page, pagination, parse } from '../validation.js';
+import { notify } from '../notifications.js';
+import { staffWith } from '../alerts.js';
 
 const answerResponse = z.union([
   z.strictObject({ optionId: z.uuid() }),
@@ -81,6 +83,25 @@ export const OFFLINE_EVENT_SECONDS = 60;
  * limit, for the invigilator and the reviewers. Being offline does not end
  * the exam: the answers are kept on the device and the timer keeps running.
  */
+/**
+ * Tells the candidate's invigilator, and staff who run sessions, that time
+ * offline went past the exam's limit (spec section 20, blackout alert).
+ */
+async function alertOffline(tx: Tx, attempt: AttemptRow): Promise<void> {
+  const { rows } = await tx.query<{ session_id: string; full_name: string; invigilator_user: string | null }>(
+    `SELECT a.session_id, c.full_name,
+            (SELECT i.user_id FROM invigilation_assignments ia JOIN invigilators i ON i.id = ia.invigilator_id
+              WHERE ia.session_id = a.session_id AND ia.candidate_id = a.candidate_id AND ia.active) AS invigilator_user
+       FROM exam_assignments a JOIN candidates c ON c.id = a.candidate_id WHERE a.id = $1`,
+    [attempt.assignment_id],
+  );
+  const r = rows[0]!;
+  const payload = { sessionId: r.session_id, attemptId: attempt.id, candidateName: r.full_name, offlineSeconds: attempt.away_seconds };
+  const staff = await staffWith(tx, attempt.organisation_id, 'session:manage');
+  const people = new Set([...(r.invigilator_user ? [r.invigilator_user] : []), ...staff.map((s) => s.id)]);
+  for (const userId of people) await notify(tx, { organisationId: attempt.organisation_id, kind: 'candidate_offline', recipientUserId: userId, payload });
+}
+
 async function touch(tx: Tx, attempt: AttemptRow): Promise<void> {
   if (attempt.status === 'active' && attempt.away_seconds !== null && attempt.away_seconds >= OFFLINE_EVENT_SECONDS) {
     const offline = examConfig.parse(attempt.manifest.config ?? {}).offline;
@@ -96,6 +117,7 @@ async function touch(tx: Tx, attempt: AttemptRow): Promise<void> {
         { offlineSeconds: attempt.away_seconds, allowedMinutes: offline.allowed ? offline.maxOfflineMinutes : 0 },
       ],
     );
+    if (exceeded) await alertOffline(tx, attempt);
   }
   await tx.query('UPDATE attempts SET last_seen_at = now() WHERE id = $1', [attempt.id]);
 }

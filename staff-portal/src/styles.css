@@ -240,3 +240,10 @@ tr.flagged td { font-weight: 600; }
   .content { padding: 0; }
   .table-wrap { overflow: visible; }
 }
+
+/* Notifications */
+.count { display: inline-block; min-width: 1.4em; margin-left: 0.4rem; padding: 0 0.4em; border-radius: 999px; background: var(--bad); color: #fff; font-size: 0.8em; font-weight: 700; text-align: center; }
+.notifications { list-style: none; padding: 0; display: grid; gap: 0.6rem; }
+.notifications li.unread { border-left: 4px solid var(--accent); }
+.notifications p { margin: 0.4rem 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

@@ -4,6 +4,7 @@ import { createPool } from './db.js';
 import { finalizeExpiredAttempts } from './attempts.js';
 import { runFailover, runRotation } from './failover.js';
 import { releaseScheduledResults } from './results.js';
+import { sendReminders } from './alerts.js';
 import { deliverWebhooks } from './webhooks.js';
 import { deliverEmails, logTransport, type MailTransport, smtpTransport } from './mail.js';
 import { applyRetention } from './retention.js';
@@ -38,6 +39,12 @@ const failover = setInterval(() => {
 }, 30_000);
 failover.unref();
 
+// Reminders before exams, and alerts for recordings still missing a day on.
+const reminders = setInterval(() => {
+  sendReminders(db).catch((err) => app.log.error(err, 'reminders failed'));
+}, 60_000);
+reminders.unref();
+
 // Webhooks to organisations' own systems.
 const hooks = setInterval(() => {
   deliverWebhooks(db, { allowPrivate: config.allowPrivateWebhooks }).catch((err) => app.log.error(err, 'webhook delivery failed'));
@@ -64,6 +71,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     clearInterval(failover);
     clearInterval(hooks);
     clearInterval(retention);
+    clearInterval(reminders);
     if (mailer) clearInterval(mailer);
     await app.close();
     await db.end();

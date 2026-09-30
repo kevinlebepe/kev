@@ -5,6 +5,7 @@ import { conflict, notFound } from '../errors.js';
 import { authorize, requireCandidate, requireOrg } from '../auth/context.js';
 import { audit, auditFrom } from '../audit.js';
 import { notify } from '../notifications.js';
+import { notifyStaff } from '../alerts.js';
 import { examConfig } from '../examConfig.js';
 import { enforceClient } from '../client.js';
 import { evaluateReadiness, readinessReport } from '../readiness.js';
@@ -53,8 +54,12 @@ export async function candidateAppRoutes(app: FastifyInstance, deps: AppDeps) {
         config: unknown;
         identity_status: string;
         user_id: string;
+        email: string;
+        full_name: string;
+        session_id: string;
       }>(
-        `SELECT a.status, s.status AS session_status, v.manifest->'config' AS config, c.identity_status, c.user_id
+        `SELECT a.status, s.status AS session_status, v.manifest->'config' AS config, c.identity_status, c.user_id,
+                c.email, c.full_name, s.id AS session_id
            FROM exam_assignments a
            JOIN sessions s ON s.id = a.session_id
            JOIN exam_versions v ON v.id = s.exam_version_id
@@ -83,11 +88,21 @@ export async function candidateAppRoutes(app: FastifyInstance, deps: AppDeps) {
       await tx.query('UPDATE exam_assignments SET status = $2, last_check_id = $3 WHERE id = $1', [id, status, inserted[0]!.id]);
 
       if (!result.passed) {
+        // The candidate is emailed what to fix; staff who run sessions see it in the portal.
+        const failed = result.checks.filter((c) => !c.passed).map((c) => c.key);
         await notify(tx, {
           organisationId: auth.organisationId,
           kind: 'readiness_failure',
+          channel: 'email',
           recipientUserId: row.user_id,
-          payload: { assignmentId: id, failed: result.checks.filter((c) => !c.passed).map((c) => c.key) },
+          recipientEmail: row.email,
+          payload: { assignmentId: id, sessionId: row.session_id, failed },
+        });
+        await notifyStaff(tx, {
+          organisationId: auth.organisationId,
+          permission: 'session:manage',
+          kind: 'readiness_failure',
+          payload: { assignmentId: id, sessionId: row.session_id, candidateName: row.full_name, failed },
         });
       }
       await audit(tx, {

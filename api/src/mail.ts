@@ -46,6 +46,25 @@ interface Row {
   starts_at: Date | null;
 }
 
+const CHECK_NAMES: Record<string, string> = {
+  identity: 'identity',
+  app_version: 'application version',
+  desktop_app: 'ExamGuard desktop app',
+  displays: 'extra screens',
+  os: 'operating system',
+  camera: 'camera',
+  microphone: 'microphone',
+  screen_capture: 'screen sharing',
+  storage: 'free storage',
+  clock: 'clock',
+  network: 'network',
+  virtual_machine: 'virtual machine',
+  restricted_apps: 'programs that must be closed',
+};
+function failedChecks(failed: unknown): string {
+  return Array.isArray(failed) && failed.length ? failed.map((k) => CHECK_NAMES[String(k)] ?? String(k).replaceAll('_', ' ')).join(', ') : 'see the app';
+}
+
 const when = new Intl.DateTimeFormat('en-ZA', { dateStyle: 'full', timeStyle: 'short', timeZone: 'Africa/Johannesburg' });
 
 /** The email for each kind of notification. Kinds without one are left for in app delivery. */
@@ -88,6 +107,56 @@ export function render(row: Row, config: Config): Omit<MailMessage, 'to'> | null
       return {
         subject: `Your result is available: ${row.session_name ?? 'exam'}`,
         text: `Hello\n\n${org} has released your result for ${row.session_name ?? 'your exam'}.\n\n${signIn} and look under My results.${footer}`,
+      };
+    case 'candidate_approved':
+      return {
+        subject: `${org} has approved your ExamGuard account`,
+        text: `Hello\n\n${org} has approved your account. Exams they assign to you will appear under My exams, where you can also run the device check.\n\n${signIn}.${footer}`,
+      };
+    case 'candidate_rejected':
+      return {
+        subject: `${org} could not approve your ExamGuard account`,
+        text: `Hello\n\n${org} could not approve your account${typeof row.payload.reason === 'string' ? ` for this reason: ${row.payload.reason}` : ''}.\n\nIf you think this is a mistake, contact ${org}'s exam support.${footer}`,
+      };
+    case 'readiness_failure':
+      return {
+        subject: `Your device check did not pass: ${row.session_name ?? 'exam'}`,
+        text: `Hello\n\nThe device check for ${row.session_name ?? 'your exam'} did not pass. These checks failed: ${failedChecks(row.payload.failed)}.\n\n${signIn}, open the exam and run the check again once you have fixed them. If you cannot, contact ${org}'s exam support before exam day.${footer}`,
+      };
+    case 'precheck_reminder':
+      return {
+        subject: `Run your device check: ${row.session_name ?? 'exam'}`,
+        text: `Hello\n\nYour exam ${row.session_name ?? ''}${row.starts_at ? ` starts ${when.format(row.starts_at)} (South African time)` : ' starts soon'}, and you have not yet passed the device check.\n\n${signIn}, open the exam and run the check now, on the device you will use. It takes a few minutes, and leaves time to fix a problem before exam day.${footer}`,
+      };
+    case 'exam_starting_soon':
+      return {
+        subject: `Your exam starts soon: ${row.session_name ?? 'exam'}`,
+        text: `Hello\n\nYour exam ${row.session_name ?? ''}${row.starts_at ? ` starts ${when.format(row.starts_at)} (South African time)` : ' starts within the hour'}.\n\n${row.payload.ready ? 'Your device check has passed.' : 'You have not yet passed the device check: run it now.'} ${signIn} a few minutes early, on a charged device with a steady connection.${footer}`,
+      };
+    case 'invigilator_session_starting':
+      return {
+        subject: `You are invigilating soon: ${row.session_name ?? 'exam session'}`,
+        text: `Hello\n\n${row.session_name ?? 'A session you invigilate'}${row.starts_at ? ` starts ${when.format(row.starts_at)} (South African time)` : ' starts within the hour'}.\n\nOpen the live console at ${config.portalBaseUrl} before the start. If you have not signed in by then, your candidates may be moved to another invigilator.${footer}`,
+      };
+    case 'submission_received':
+      return {
+        subject: `Exam submitted: ${row.session_name ?? 'exam'}`,
+        text: `Hello\n\nYour exam ${row.session_name ?? ''} was submitted at ${typeof row.payload.submittedAt === 'string' ? when.format(new Date(row.payload.submittedAt)) : 'the time shown in the app'} (South African time), with ${Number(row.payload.answered ?? 0)} of ${Number(row.payload.total ?? 0)} questions answered.\n\nYour receipt number is ${String(row.payload.receiptId ?? '')}. Keep this email as proof of submission. ${org} releases results when marking is complete.${footer}`,
+      };
+    case 'invigilator_capacity_alert':
+      return {
+        subject: `Candidates are waiting for an invigilator: ${row.session_name ?? 'session'}`,
+        text: `Hello\n\n${Number(row.payload.unassigned ?? 0)} candidates in ${row.session_name ?? 'a session'} have no invigilator because everyone rostered already watches 10. Add an invigilator to the session at ${config.portalBaseUrl}.${footer}`,
+      };
+    case 'evidence_incomplete':
+      return {
+        subject: `Recordings are missing: ${row.session_name ?? 'session'}`,
+        text: `Hello\n\n${Number(row.payload.attempts ?? 0)} submissions in ${row.session_name ?? 'a session'} are still missing recording pieces a day after the exam. The recording health report at ${config.portalBaseUrl} lists them.${footer}`,
+      };
+    case 'service_incident':
+      return {
+        subject: 'ExamGuard: a part of the service is not working',
+        text: `Hello\n\n${String(row.payload.message ?? 'Part of the platform is not working.')}\n\nThe system health panel at ${config.portalBaseUrl} shows the current state.\n\nThis message was sent by ExamGuard.`,
       };
     case 'candidate_verification_requested':
       return {

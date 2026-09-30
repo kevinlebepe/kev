@@ -80,7 +80,7 @@ describe('email delivery', () => {
     expect(assigned.subject).toBe('New exam: Maths final');
     expect(assigned.text).toMatch(/Monday, 14 October 2030 at 09:00/);
     expect(render({ ...row, kind: 'result_released' }, h.config)!.text).toMatch(/My results/);
-    expect(render({ ...row, kind: 'readiness_failure' }, h.config)).toBeNull();
+    expect(render({ ...row, kind: 'candidate_offline' }, h.config)).toBeNull();
     expect(render({ ...row, kind: 'candidate_invitation' }, h.config)).toBeNull();
   });
 });
