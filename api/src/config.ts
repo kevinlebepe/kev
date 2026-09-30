@@ -98,6 +98,8 @@ export interface Config {
   portalBaseUrl: string;
   /** Where identity providers send people back after single sign on; register it with each provider. */
   ssoCallbackUrl: string;
+  /** Website addresses allowed to call the API from a browser when it is hosted apart from them. */
+  corsOrigins: string[];
   /** Redis, so rate limits hold across several API instances. Optional with one instance. */
   redisUrl: string | null;
   /** Bearer token for GET /metrics. Without it, metrics are off in production. */
@@ -157,6 +159,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     publicBaseUrl: process.env.PUBLIC_BASE_URL ?? 'http://localhost:5173',
     portalBaseUrl: process.env.PORTAL_BASE_URL ?? 'http://localhost:5174',
     ssoCallbackUrl: process.env.SSO_CALLBACK_URL ?? `${process.env.PUBLIC_BASE_URL ?? 'http://localhost:5173'}/api/auth/sso/callback`,
+    corsOrigins: (process.env.CORS_ORIGINS ?? '').split(',').map((o) => o.trim().replace(/\/$/, '')).filter(Boolean),
     redisUrl: process.env.REDIS_URL || null,
     metricsToken: process.env.METRICS_TOKEN || null,
     packagePrefetchMinutes: Number(process.env.PACKAGE_PREFETCH_MINUTES ?? 10),

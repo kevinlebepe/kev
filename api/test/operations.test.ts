@@ -109,3 +109,34 @@ describe('exam event checklist', () => {
     expect((await call(h, 'GET', `/sessions/${sessionId}/checklist`, (await createOrg(h)).owner)).status).toBe(404);
   });
 });
+
+describe('websites hosted apart from the API', () => {
+  it('lets only the listed addresses call it from a browser', async () => {
+    const app = await buildApp({ db: h.db, config: { ...h.config, corsOrigins: ['https://invigilator.example.co.za'] }, store: h.store });
+    try {
+      const preflight = await app.inject({
+        method: 'OPTIONS',
+        url: '/auth/login',
+        headers: { origin: 'https://invigilator.example.co.za', 'access-control-request-method': 'POST' },
+      });
+      expect(preflight.statusCode).toBe(204);
+      expect(preflight.headers['access-control-allow-origin']).toBe('https://invigilator.example.co.za');
+      expect(String(preflight.headers['access-control-allow-headers'])).toContain('Authorization');
+      const real = await app.inject({ method: 'GET', url: '/health', headers: { origin: 'https://invigilator.example.co.za' } });
+      expect(real.headers['access-control-allow-origin']).toBe('https://invigilator.example.co.za');
+      expect(String(real.headers['access-control-expose-headers'])).toContain('Date');
+
+      for (const origin of ['https://evil.example', 'https://invigilator.example.co.za.evil.example', 'http://invigilator.example.co.za']) {
+        const res = await app.inject({ method: 'OPTIONS', url: '/auth/login', headers: { origin, 'access-control-request-method': 'POST' } });
+        expect(res.headers['access-control-allow-origin'], origin).toBeUndefined();
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('allows no other address by default', async () => {
+    const res = await h.app.inject({ method: 'GET', url: '/health', headers: { origin: 'https://anything.example' } });
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+});

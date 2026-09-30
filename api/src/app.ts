@@ -51,6 +51,28 @@ export async function buildApp(given: AppDeps, opts: { logger?: boolean } = {}):
   if (redis) app.addHook('onClose', async () => void (await redis.quit().catch(() => undefined)));
   await app.register(rateLimit, { global: false, ...(redis ? { redis, nameSpace: 'examguard-rl-', skipOnError: true } : {}) });
 
+  // The websites may be hosted apart from the API (cross origin). Only the
+  // listed addresses may call it from a browser; tokens travel in headers,
+  // never cookies, so no credentials are shared with other sites.
+  const allowedOrigins = new Set(deps.config.corsOrigins);
+  app.addHook('onRequest', async (req, reply) => {
+    const origin = req.headers.origin;
+    if (!origin || !allowedOrigins.has(origin)) return;
+    reply.header('access-control-allow-origin', origin).header('vary', 'Origin');
+    reply.header('access-control-expose-headers', 'Date, Content-Disposition, X-Request-Id');
+    if (req.method === 'OPTIONS') {
+      return reply
+        .header('access-control-allow-methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
+        .header(
+          'access-control-allow-headers',
+          'Authorization, Content-Type, X-ExamGuard-Client, X-Chunk-Sha256, X-Chunk-Start, X-Chunk-End, X-File-Name, X-Request-Id',
+        )
+        .header('access-control-max-age', '600')
+        .code(204)
+        .send();
+    }
+  });
+
   // Only a well formed id is echoed back.
   app.addHook('onRequest', async (req, reply) => {
     if (!/^[A-Za-z0-9._-]{1,100}$/.test(String(req.id))) (req as { id: string }).id = randomUUID();

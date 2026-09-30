@@ -7,3 +7,4 @@ dist/
 .dev-signing-key.pem
 api/recordings/
 desktop-app/release/
+deploy/bundle/
