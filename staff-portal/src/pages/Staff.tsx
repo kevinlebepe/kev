@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ActionButton, Badge, ErrorText, Field, Form, Loading, Page } from '../components/ui';
-import { request } from '../lib/api';
+import { API_BASE, request, sendFile } from '../lib/api';
 import { label } from '../lib/format';
 import { can, useMe } from '../lib/session';
 import { useApi } from '../lib/useApi';
@@ -60,7 +60,15 @@ export function Staff() {
 /** The organisation's sign in policy. Owners only. */
 function Security() {
   const me = useMe();
-  const org = useApi<{ requireStaffMfa: boolean; recordingRetentionDays: number | null; candidateNotice: string | null }>(`/organisations/${me.organisationId}`);
+  const org = useApi<{
+    requireStaffMfa: boolean;
+    recordingRetentionDays: number | null;
+    candidateNotice: string | null;
+    allowAccessCodes: boolean;
+    brandColour: string | null;
+    hasLogo: boolean;
+    slug: string;
+  }>(`/organisations/${me.organisationId}`);
   if (!org.data) return <ErrorText error={org.error} />;
   const on = org.data.requireStaffMfa;
   return (
@@ -87,6 +95,20 @@ function Security() {
       <p className="muted small">After 5 wrong passwords or codes in a row, an account is locked for 15 minutes. Anyone can reset a forgotten password by email.</p>
       <Retention current={org.data.recordingRetentionDays} onSaved={org.reload} />
       <CandidateNotice current={org.data.candidateNotice} onSaved={org.reload} />
+      <h3>Exam access codes</h3>
+      <p>
+        Access codes are <strong>{org.data.allowAccessCodes ? 'allowed' : 'turned off'}</strong>. A code lets one approved candidate whose identity is verified sign in
+        for one exam, from an hour before it starts until it ends, when they cannot sign in the usual way. Session managers issue them on the session page.
+      </p>
+      <ActionButton
+        onClick={async () => {
+          await request('PATCH', `/organisations/${me.organisationId}`, { allowAccessCodes: !org.data!.allowAccessCodes });
+          await org.reload();
+        }}
+      >
+        {org.data.allowAccessCodes ? 'Turn access codes off' : 'Allow access codes'}
+      </ActionButton>
+      <Branding colour={org.data.brandColour} hasLogo={org.data.hasLogo} slug={org.data.slug} onSaved={org.reload} />
     </section>
   );
 }
@@ -141,6 +163,79 @@ function CandidateNotice({ current, onSaved }: { current: string | null; onSaved
         </p>
       )}
     </Form>
+  );
+}
+
+/** What candidates see of the organisation: its colour and logo (spec section 5). */
+function Branding({ colour, hasLogo, slug, onSaved }: { colour: string | null; hasLogo: boolean; slug: string; onSaved: () => void }) {
+  const me = useMe();
+  const [value, setValue] = useState(colour ?? '#1f5fbf');
+  const [version, setVersion] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <>
+      <h3>Branding</h3>
+      <p className="muted small">Candidates see your colour and logo on the sign in screen of the exam app once they type your organisation code, {slug}.</p>
+      <div className="row">
+        <label className="field narrow">
+          <span>Colour</span>
+          <input type="color" value={value} onChange={(e) => setValue(e.target.value)} />
+        </label>
+        <ActionButton
+          onClick={async () => {
+            await request('PATCH', `/organisations/${me.organisationId}`, { brandColour: value });
+            onSaved();
+          }}
+        >
+          Save colour
+        </ActionButton>
+        {colour && (
+          <ActionButton
+            className="link"
+            onClick={async () => {
+              await request('PATCH', `/organisations/${me.organisationId}`, { brandColour: null });
+              onSaved();
+            }}
+          >
+            Use the default
+          </ActionButton>
+        )}
+      </div>
+      <div className="row">
+        {hasLogo && <img className="logo-preview" src={`${API_BASE}/public/organisations/${slug}/logo?v=${version}`} alt="Your logo" />}
+        <label className="field narrow">
+          <span>Logo, a PNG or JPEG up to 200 KB</span>
+          <input
+            type="file"
+            accept="image/png,image/jpeg"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              setError(null);
+              try {
+                await sendFile('PUT', `/organisations/${me.organisationId}/logo`, file);
+                setVersion(version + 1);
+                onSaved();
+              } catch (err) {
+                setError((err as Error).message);
+              }
+            }}
+          />
+        </label>
+        {hasLogo && (
+          <ActionButton
+            className="link"
+            onClick={async () => {
+              await request('DELETE', `/organisations/${me.organisationId}/logo`);
+              onSaved();
+            }}
+          >
+            Remove the logo
+          </ActionButton>
+        )}
+      </div>
+      <ErrorText error={error} />
+    </>
   );
 }
 

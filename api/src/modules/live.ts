@@ -188,7 +188,7 @@ export async function liveRoutes(app: FastifyInstance, deps: AppDeps) {
               c.id AS "candidateId", c.full_name AS "fullName", c.student_id AS "studentId", c.email,
               s.id AS "sessionId", s.name AS "sessionName", v.manifest->>'name' AS "examName",
               (SELECT count(*)::int FROM answers an WHERE an.attempt_id = at.id) AS answered,
-              jsonb_array_length(v.manifest->'questions') AS total
+              coalesce(cardinality(at.question_order), jsonb_array_length(v.manifest->'questions')) AS total
          FROM attempts at
          JOIN exam_assignments a ON a.id = at.assignment_id
          JOIN candidates c ON c.id = a.candidate_id

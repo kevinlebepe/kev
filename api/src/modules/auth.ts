@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { hashAccessCode } from '../accessCodes.js';
 import type { AppDeps } from '../context.js';
 import { withTransaction } from '../db.js';
 import { unauthorized } from '../errors.js';
@@ -48,17 +49,20 @@ async function recordFailure(q: Queryable, userId: string, ip: string): Promise<
   await audit(q, { organisationId: null, actorUserId: userId, action: rows[0]?.locked ? 'auth.locked' : 'auth.login_failed', ip });
 }
 
+const accessCodeBody = z.object({ organisation: z.string().trim().min(1).max(100), code: z.string().trim().min(8).max(40) });
+
 const hashCode = (code: string) => hashToken(code.toLowerCase().replace(/\s/g, ''));
 
-async function issueTokens(q: Queryable, deps: AppDeps, userId: string, organisationId: string | null) {
+/** `until` caps the session, for a sign in that only holds for one exam. */
+async function issueTokens(q: Queryable, deps: AppDeps, userId: string, organisationId: string | null, until: Date | null = null) {
   const accessToken = await signAccessToken(deps.config, { sub: userId, org: organisationId });
   let refreshToken: string | null = null;
   if (organisationId) {
     const { token, hash } = newOpaqueToken();
     await q.query(
-      `INSERT INTO refresh_tokens (user_id, organisation_id, token_hash, expires_at)
-       VALUES ($1, $2, $3, now() + make_interval(secs => $4))`,
-      [userId, organisationId, hash, deps.config.refreshTokenTtlSeconds],
+      `INSERT INTO refresh_tokens (user_id, organisation_id, token_hash, expires_at, hard_expires_at)
+       VALUES ($1, $2, $3, LEAST(now() + make_interval(secs => $4), $5::timestamptz), $5::timestamptz)`,
+      [userId, organisationId, hash, deps.config.refreshTokenTtlSeconds, until],
     );
     refreshToken = token;
   }
@@ -111,6 +115,43 @@ export async function authRoutes(app: FastifyInstance, deps: AppDeps) {
     return withTransaction(db, async (tx) => {
       await audit(tx, { organisationId, actorUserId: user.id, action: 'auth.login', ip: req.ip });
       return issueTokens(tx, deps, user.id, organisationId);
+    });
+  });
+
+  // Exam access code (spec section 3): a controlled fallback for an approved,
+  // verified candidate who cannot sign in the usual way on exam day. It works
+  // only if the organisation allows it, only from an hour before the session
+  // until it ends, and the session it opens ends with the exam.
+  app.post('/auth/access-code', { config: authRateLimit }, async (req) => {
+    const body = parse(accessCodeBody, req.body);
+    const { rows } = await db.query<{ assignment_id: string; organisation_id: string; user_id: string | null; ends_at: Date }>(
+      `SELECT a.id AS assignment_id, a.organisation_id, c.user_id, s.ends_at
+         FROM exam_assignments a
+         JOIN organisations o ON o.id = a.organisation_id
+         JOIN candidates c ON c.id = a.candidate_id
+         JOIN sessions s ON s.id = a.session_id
+        WHERE a.access_code_hash = $1 AND o.slug = $2 AND o.allow_access_codes
+          AND c.status = 'approved' AND c.identity_status = 'verified' AND c.erased_at IS NULL
+          AND a.status IN ('assigned', 'precheck_complete', 'active')
+          AND s.status IN ('scheduled', 'open')
+          AND now() BETWEEN s.starts_at - interval '60 minutes' AND s.ends_at`,
+      [hashAccessCode(body.code), body.organisation],
+    );
+    const found = rows[0];
+    if (!found?.user_id) {
+      await withTransaction(db, (tx) => audit(tx, { organisationId: null, actorUserId: null, action: 'auth.access_code_failed', ip: req.ip }));
+      throw unauthorized('That code is not valid for this organisation right now. Check it, or contact exam support.');
+    }
+    return withTransaction(db, async (tx) => {
+      await audit(tx, {
+        organisationId: found.organisation_id,
+        actorUserId: found.user_id,
+        action: 'auth.access_code',
+        targetType: 'exam_assignment',
+        targetId: found.assignment_id,
+        ip: req.ip,
+      });
+      return issueTokens(tx, deps, found.user_id!, found.organisation_id, found.ends_at);
     });
   });
 
@@ -269,8 +310,9 @@ export async function authRoutes(app: FastifyInstance, deps: AppDeps) {
         organisation_id: string;
         revoked_at: Date | null;
         expired: boolean;
+        hard_expires_at: Date | null;
       }>(
-        `SELECT id, user_id, organisation_id, revoked_at, expires_at < now() AS expired
+        `SELECT id, user_id, organisation_id, revoked_at, expires_at < now() AS expired, hard_expires_at
            FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE`,
         [hashToken(body.refreshToken)],
       );
@@ -293,7 +335,7 @@ export async function authRoutes(app: FastifyInstance, deps: AppDeps) {
       }
       if (token.expired) throw unauthorized('Refresh token expired');
 
-      const issued = await issueTokens(tx, deps, token.user_id, token.organisation_id);
+      const issued = await issueTokens(tx, deps, token.user_id, token.organisation_id, token.hard_expires_at);
       await tx.query(
         `UPDATE refresh_tokens SET revoked_at = now(),
                 replaced_by = (SELECT id FROM refresh_tokens WHERE token_hash = $2)

@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AppDeps } from '../context.js';
 import { isConstraint, isUniqueViolation, type Tx, withTransaction } from '../db.js';
@@ -17,6 +17,20 @@ const createInvigilatorBody = z.object({
   password: password.optional(),
   staffId: z.string().max(100).optional(),
   maxActive: z.number().int().min(1).max(PLATFORM_MAX_CANDIDATES_PER_INVIGILATOR).default(PLATFORM_MAX_CANDIDATES_PER_INVIGILATOR),
+});
+
+const importInvigilatorsBody = z.object({
+  items: z
+    .array(
+      z.object({
+        email: z.email(),
+        displayName: z.string().trim().min(1).max(200),
+        staffId: z.string().max(100).optional(),
+        maxActive: z.number().int().min(1).max(PLATFORM_MAX_CANDIDATES_PER_INVIGILATOR).optional(),
+      }),
+    )
+    .min(1)
+    .max(500),
 });
 
 const updateInvigilatorBody = z.object({
@@ -53,47 +67,74 @@ async function sessionCap(tx: Tx, sessionId: string, organisationId: string): Pr
 export async function invigilationRoutes(app: FastifyInstance, deps: AppDeps) {
   const { db } = deps;
 
+  /** Adds one invigilator, inviting them by email when they have no account yet. */
+  async function createInvigilator(tx: Tx, req: FastifyRequest, auth: { organisationId: string }, body: z.infer<typeof createInvigilatorBody>) {
+    const user = await findOrCreateUser(tx, body);
+    if (user.needsInvitation) {
+      await inviteStaff(tx, deps.config, { userId: user.id, email: body.email, organisationId: auth.organisationId, role: 'invigilator' });
+    }
+    await tx.query(
+      `INSERT INTO organisation_users (organisation_id, user_id, role_id) VALUES ($1, $2, $3)
+       ON CONFLICT (organisation_id, user_id) DO NOTHING`,
+      [auth.organisationId, user.id, await roleIdByKey(tx, auth.organisationId, 'invigilator')],
+    );
+    // An existing member keeps their role, so it must already allow the live
+    // console. Changing it here could silently demote an owner or admin.
+    const { rows: access } = await tx.query<{ role: string; live: boolean }>(
+      `SELECT r.key AS role,
+              EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = ou.role_id AND rp.permission_key = 'live:view') AS live
+         FROM organisation_users ou JOIN roles r ON r.id = ou.role_id
+        WHERE ou.organisation_id = $1 AND ou.user_id = $2`,
+      [auth.organisationId, user.id],
+    );
+    if (!access[0]?.live) {
+      throw conflict(
+        `This user already has the ${access[0]?.role ?? 'unknown'} role, which cannot open the live console; change their role first`,
+      );
+    }
+    const { rows } = await tx
+      .query<{ id: string }>(
+        `INSERT INTO invigilators (organisation_id, user_id, staff_id, max_active) VALUES ($1, $2, $3, $4) RETURNING id`,
+        [auth.organisationId, user.id, body.staffId ?? null, body.maxActive],
+      )
+      .catch((err) => {
+        if (isUniqueViolation(err)) throw conflict('This user is already an invigilator');
+        throw err;
+      });
+    const id = rows[0]!.id;
+    await audit(tx, { ...auditFrom(req), action: 'invigilator.create', targetType: 'invigilator', targetId: id });
+    return { id, userId: user.id, invited: user.needsInvitation };
+  }
+
   app.post('/invigilators', { preHandler: authorize('invigilator:create') }, async (req, reply) => {
     const auth = requireOrg(req);
     const body = parse(createInvigilatorBody, req.body);
-    const result = await withTransaction(db, async (tx) => {
-      const user = await findOrCreateUser(tx, body);
-      if (user.needsInvitation) {
-        await inviteStaff(tx, deps.config, { userId: user.id, email: body.email, organisationId: auth.organisationId, role: 'invigilator' });
-      }
-      await tx.query(
-        `INSERT INTO organisation_users (organisation_id, user_id, role_id) VALUES ($1, $2, $3)
-         ON CONFLICT (organisation_id, user_id) DO NOTHING`,
-        [auth.organisationId, user.id, await roleIdByKey(tx, auth.organisationId, 'invigilator')],
-      );
-      // An existing member keeps their role, so it must already allow the live
-      // console. Changing it here could silently demote an owner or admin.
-      const { rows: access } = await tx.query<{ role: string; live: boolean }>(
-        `SELECT r.key AS role,
-                EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = ou.role_id AND rp.permission_key = 'live:view') AS live
-           FROM organisation_users ou JOIN roles r ON r.id = ou.role_id
-          WHERE ou.organisation_id = $1 AND ou.user_id = $2`,
-        [auth.organisationId, user.id],
-      );
-      if (!access[0]?.live) {
-        throw conflict(
-          `This user already has the ${access[0]?.role ?? 'unknown'} role, which cannot open the live console; change their role first`,
-        );
-      }
-      const { rows } = await tx
-        .query<{ id: string }>(
-          `INSERT INTO invigilators (organisation_id, user_id, staff_id, max_active) VALUES ($1, $2, $3, $4) RETURNING id`,
-          [auth.organisationId, user.id, body.staffId ?? null, body.maxActive],
-        )
-        .catch((err) => {
-          if (isUniqueViolation(err)) throw conflict('This user is already an invigilator');
-          throw err;
-        });
-      const id = rows[0]!.id;
-      await audit(tx, { ...auditFrom(req), action: 'invigilator.create', targetType: 'invigilator', targetId: id });
-      return { id, userId: user.id, invited: user.needsInvitation };
-    });
+    const result = await withTransaction(db, (tx) => createInvigilator(tx, req, auth, body));
     return reply.code(201).send(result);
+  });
+
+  // Adds many invigilators at once (spec section 7). Each row stands alone: a
+  // bad row is reported and the rest are still added.
+  app.post('/invigilators/import', { preHandler: authorize('invigilator:create') }, async (req) => {
+    const auth = requireOrg(req);
+    const { items } = parse(importInvigilatorsBody, req.body);
+    return withTransaction(db, async (tx) => {
+      const created: { email: string; id: string; invited: boolean }[] = [];
+      const failed: { email: string; reason: string }[] = [];
+      for (const item of items) {
+        await tx.query('SAVEPOINT row');
+        try {
+          const r = await createInvigilator(tx, req, auth, { ...item, maxActive: item.maxActive ?? PLATFORM_MAX_CANDIDATES_PER_INVIGILATOR });
+          await tx.query('RELEASE SAVEPOINT row');
+          created.push({ email: item.email, id: r.id, invited: r.invited });
+        } catch (err) {
+          await tx.query('ROLLBACK TO SAVEPOINT row');
+          failed.push({ email: item.email, reason: (err as Error).message });
+        }
+      }
+      await audit(tx, { ...auditFrom(req), action: 'invigilator.import', data: { created: created.length, failed: failed.length } });
+      return { created, failed };
+    });
   });
 
   app.get('/invigilators', { preHandler: authorize('invigilator:create') }, async (req) => {

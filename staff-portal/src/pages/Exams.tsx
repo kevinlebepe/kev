@@ -15,6 +15,16 @@ interface ExamRow {
   latestVersion: number | null;
 }
 
+interface Pool {
+  id?: string;
+  category: string | null;
+  difficulty: 'easy' | 'medium' | 'hard' | null;
+  draw: number;
+  points: number;
+  /** Bank questions that match, leaving out the exam's fixed questions. */
+  available?: number;
+}
+
 interface ExamDetailData {
   id: string;
   code: string;
@@ -23,6 +33,7 @@ interface ExamDetailData {
   status: string;
   config: Config;
   questions: { id: string; type: string; prompt: string; position: number; points: number }[];
+  pools: Pool[];
   versions: { id: string; version: number; manifestSha256: string; publishedAt: string }[];
 }
 
@@ -208,6 +219,7 @@ export function ExamDetail({ id }: { id: string }) {
             </p>
             <Settings exam={d} onSaved={exam.reload} />
             <Questions exam={d} onChanged={exam.reload} />
+            <Pools exam={d} onChanged={exam.reload} />
             {d.versions.length > 0 && (
               <section className="card">
                 <h2>Published versions</h2>
@@ -434,8 +446,9 @@ function Questions({ exam, onChanged }: { exam: ExamDetailData; onChanged: () =>
       {adding && (
         <NewQuestion
           onCancel={() => setAdding(false)}
-          onCreated={async (questionId, points) => {
-            await save([...items, { questionId, points }]);
+          onCreated={async (questionId, points, fixed) => {
+            if (fixed) await save([...items, { questionId, points }]);
+            else onChanged();
             setAdding(false);
           }}
         />
@@ -471,6 +484,69 @@ function Questions({ exam, onChanged }: { exam: ExamDetailData; onChanged: () =>
   );
 }
 
+/** Random draws from the question bank (spec section 6), each candidate getting their own. */
+function Pools({ exam, onChanged }: { exam: ExamDetailData; onChanged: () => void }) {
+  const [pools, setPools] = useState<Pool[]>(exam.pools);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => setPools(exam.pools), [exam.pools]);
+  const set = (i: number, patch: Partial<Pool>) => setPools(pools.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+  const marks = pools.reduce((n, p) => n + p.draw * p.points, 0);
+  return (
+    <Form
+      submitText="Save pools"
+      onSubmit={async () => {
+        setSaved(false);
+        await request('PUT', `/exams/${exam.id}/pools`, {
+          pools: pools.map((p) => ({ category: p.category?.trim() || null, difficulty: p.difficulty, draw: p.draw, points: p.points })),
+        });
+        setSaved(true);
+        onChanged();
+      }}
+    >
+      <h2>Question pools</h2>
+      <p className="muted small">
+        Besides the questions above, each candidate gets questions drawn at random from the bank: the number you choose from each pool. Every matching question is
+        published, and the draw happens when the candidate starts.{pools.length > 0 && ` Pools add ${marks} marks per candidate.`}
+      </p>
+      {pools.map((p, i) => (
+        <div className="row pool" key={i}>
+          <Field label="Category">
+            <input value={p.category ?? ''} placeholder="Any" onChange={(e) => set(i, { category: e.target.value || null })} />
+          </Field>
+          <Field label="Difficulty">
+            <select value={p.difficulty ?? ''} onChange={(e) => set(i, { difficulty: (e.target.value || null) as Pool['difficulty'] })}>
+              <option value="">Any</option>
+              <option value="easy">Easy</option>
+              <option value="medium">Medium</option>
+              <option value="hard">Hard</option>
+            </select>
+          </Field>
+          <Field label="Questions drawn">
+            <input type="number" min={1} max={200} value={p.draw} onChange={(e) => set(i, { draw: Number(e.target.value) })} />
+          </Field>
+          <Field label="Marks each">
+            <input type="number" min={0} max={1000} step="0.5" value={p.points} onChange={(e) => set(i, { points: Number(e.target.value) })} />
+          </Field>
+          <span className={`small ${p.available !== undefined && p.available < p.draw ? 'error inline' : 'muted'}`}>
+            {p.available === undefined ? 'Save to count matches' : `${p.available} in the bank`}
+          </span>
+          <button type="button" className="small" onClick={() => setPools(pools.filter((_, j) => j !== i))}>
+            Remove
+          </button>
+        </div>
+      ))}
+      <button type="button" className="small" onClick={() => setPools([...pools, { category: null, difficulty: null, draw: 1, points: 1 }])}>
+        Add a pool
+      </button>
+      {saved && (
+        <p className="banner ok" role="status">
+          Pools saved. They apply to the next published version.
+        </p>
+      )}
+    </Form>
+  );
+}
+
 function move<T>(list: T[], from: number, to: number): T[] {
   const next = [...list];
   const [item] = next.splice(from, 1);
@@ -478,10 +554,13 @@ function move<T>(list: T[], from: number, to: number): T[] {
   return next;
 }
 
-function NewQuestion({ onCreated, onCancel }: { onCreated: (id: string, points: number) => Promise<void>; onCancel: () => void }) {
+function NewQuestion({ onCreated, onCancel }: { onCreated: (id: string, points: number, fixed: boolean) => Promise<void>; onCancel: () => void }) {
   const [type, setType] = useState<QuestionType>('mcq');
   const [prompt, setPrompt] = useState('');
   const [points, setPoints] = useState(1);
+  const [category, setCategory] = useState('');
+  const [difficulty, setDifficulty] = useState('');
+  const [fixed, setFixed] = useState(true);
   const [options, setOptions] = useState([
     { label: '', isCorrect: true },
     { label: '', isCorrect: false },
@@ -496,16 +575,18 @@ function NewQuestion({ onCreated, onCancel }: { onCreated: (id: string, points: 
 
   return (
     <Form
-      submitText="Add to exam"
+      submitText={fixed ? 'Add to exam' : 'Save to the question bank'}
       onCancel={onCancel}
       onSubmit={async () => {
         const body = {
           type,
           prompt: prompt.trim(),
+          ...(category.trim() ? { category: category.trim() } : {}),
+          ...(difficulty ? { difficulty } : {}),
           options: choice || type === 'true_false' ? options.map((o) => ({ label: o.label.trim(), isCorrect: o.isCorrect })) : [],
         };
         const created = await request<{ id: string }>('POST', '/questions', body);
-        await onCreated(created.id, points);
+        await onCreated(created.id, points, fixed);
       }}
     >
       <div className="grid2">
@@ -525,6 +606,25 @@ function NewQuestion({ onCreated, onCancel }: { onCreated: (id: string, points: 
       <Field label="Question">
         <textarea rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} required />
       </Field>
+      <div className="grid2">
+        <Field label="Category (optional)" hint="Pools draw questions by category, for example Algebra.">
+          <input value={category} maxLength={200} onChange={(e) => setCategory(e.target.value)} />
+        </Field>
+        <Field label="Difficulty (optional)">
+          <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}>
+            <option value="">Not set</option>
+            <option value="easy">Easy</option>
+            <option value="medium">Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+        </Field>
+      </div>
+      <Check
+        label="Put it in this exam for every candidate"
+        checked={fixed}
+        onChange={setFixed}
+        hint="Untick to only save it to the question bank, for a pool to draw from."
+      />
       {(choice || type === 'true_false') && (
         <fieldset>
           <legend>Options, with the correct {type === 'multiple_response' ? 'ones' : 'one'} ticked</legend>

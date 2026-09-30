@@ -17,12 +17,20 @@ export interface MarkingInput {
 }
 
 export async function loadMarkingInput(q: Queryable, attemptId: string): Promise<MarkingInput> {
-  const { rows } = await q.query<{ organisation_id: string; manifest: { questions: MarkingInput['questions']; config?: unknown }; answer_key: AnswerKey }>(
-    `SELECT at.organisation_id, v.manifest, v.answer_key
+  const { rows } = await q.query<{
+    organisation_id: string;
+    manifest: { questions: MarkingInput['questions']; config?: unknown };
+    answer_key: AnswerKey;
+    question_order: string[] | null;
+  }>(
+    `SELECT at.organisation_id, v.manifest, v.answer_key, at.question_order
        FROM attempts at JOIN exam_versions v ON v.id = at.exam_version_id WHERE at.id = $1`,
     [attemptId],
   );
   const row = rows[0]!;
+  // Only the questions this candidate was given count, in the order they saw them.
+  const byId = new Map(row.manifest.questions.map((mq) => [mq.id, mq]));
+  const questions = row.question_order ? row.question_order.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])) : row.manifest.questions;
   const { rows: answers } = await q.query<{ question_id: string; response: StoredAnswer }>(
     'SELECT question_id, response FROM answers WHERE attempt_id = $1',
     [attemptId],
@@ -33,7 +41,7 @@ export async function loadMarkingInput(q: Queryable, attemptId: string): Promise
   );
   return {
     organisationId: row.organisation_id,
-    questions: row.manifest.questions,
+    questions,
     answerKey: row.answer_key,
     answers: new Map(answers.map((a) => [a.question_id, a.response])),
     manual: new Map(manual.map((m) => [m.question_id, { points: Number(m.points), comment: m.comment }])),

@@ -35,6 +35,11 @@ export function Candidates() {
   const [mode, setMode] = useState<'none' | 'invite' | 'import'>('none');
   const [search, setSearch] = useState('');
   const list = useApi<{ items: Candidate[]; nextOffset: number | null }>(`/candidates?limit=100&offset=${offset}${status ? `&status=${status}` : ''}`);
+  const groups = useApi<{ items: { id: string; name: string; members: number }[] }>('/groups');
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [groupId, setGroupId] = useState('');
+  const [groupNote, setGroupNote] = useState<string | null>(null);
+  const canGroup = can(me, 'candidate:invite');
 
   const shown = (list.data?.items ?? []).filter((c) => {
     const q = search.trim().toLowerCase();
@@ -98,12 +103,82 @@ export function Candidates() {
         </Field>
       </div>
 
+      {canGroup && (
+        <section className="card groups">
+          <h2>Groups</h2>
+          <p className="muted small">Put candidates in groups, such as a class or an intake, to assign a whole group to a session at once.</p>
+          <div className="row">
+            {groups.data?.items.map((g) => (
+              <span key={g.id} className="chip">
+                {g.name} ({g.members}){' '}
+                <ActionButton className="small link" confirm={`Delete the group ${g.name}? The candidates stay.`} onClick={async () => {
+                  await request('DELETE', `/groups/${g.id}`);
+                  await groups.reload();
+                }}>
+                  Delete
+                </ActionButton>
+              </span>
+            ))}
+            <ActionButton
+              className="small"
+              onClick={async () => {
+                const name = window.prompt('Name of the new group, for example BSc Year 1:');
+                if (!name?.trim()) return;
+                await request('POST', '/groups', { name: name.trim() });
+                await groups.reload();
+              }}
+            >
+              New group
+            </ActionButton>
+          </div>
+          <div className="row">
+            <label className="field narrow">
+              <span>Add the {picked.size} selected to</span>
+              <select value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+                <option value="">Choose a group</option>
+                {groups.data?.items.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <ActionButton
+              disabled={!groupId || picked.size === 0}
+              onClick={async () => {
+                const r = await request<{ added: number }>('POST', `/groups/${groupId}/members/add`, { candidateIds: [...picked] });
+                setGroupNote(`${r.added} added to the group.`);
+                setPicked(new Set());
+                await groups.reload();
+              }}
+            >
+              Add to group
+            </ActionButton>
+            {groupNote && (
+              <span className="banner ok" role="status">
+                {groupNote}
+              </span>
+            )}
+          </div>
+        </section>
+      )}
+
       <ErrorText error={list.error} />
       <Loading loading={list.loading} empty={shown.length === 0 && 'No candidates match.'}>
         <div className="table-wrap">
         <table>
           <thead>
             <tr>
+              {canGroup && (
+                <th>
+                  <input
+                    type="checkbox"
+                    aria-label="Select everyone shown"
+                    checked={shown.length > 0 && shown.every((c) => picked.has(c.id))}
+                    onChange={(e) => setPicked(e.target.checked ? new Set(shown.map((c) => c.id)) : new Set())}
+                  />
+                </th>
+              )}
               <th>Name</th>
               <th>Email</th>
               <th>Student number</th>
@@ -116,6 +191,21 @@ export function Candidates() {
           <tbody>
             {shown.map((c) => (
               <tr key={c.id}>
+                {canGroup && (
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${c.fullName}`}
+                      checked={picked.has(c.id)}
+                      onChange={() => {
+                        const next = new Set(picked);
+                        if (next.has(c.id)) next.delete(c.id);
+                        else next.add(c.id);
+                        setPicked(next);
+                      }}
+                    />
+                  </td>
+                )}
                 <td>{c.fullName}</td>
                 <td>{c.email}</td>
                 <td>{c.studentId}</td>

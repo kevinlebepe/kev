@@ -33,14 +33,18 @@ function storeRefresh(token: string | null) {
   }
 }
 
+/** The API's address, for images the browser loads itself, such as a public logo. */
+export const API_BASE = BASE;
+
 async function raw(method: string, path: string, body?: unknown, token = accessToken): Promise<Response> {
+  const file = body instanceof Blob;
   return fetch(`${BASE}${path}`, {
     method,
     headers: {
-      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      ...(body === undefined ? {} : { 'content-type': file ? body.type || 'application/octet-stream' : 'application/json' }),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : file ? body : JSON.stringify(body),
   });
 }
 
@@ -99,6 +103,11 @@ export async function request<T>(method: string, path: string, body?: unknown): 
     throw new ApiError(res.status, detail ? `${message}: ${detail}` : message, data?.error?.details);
   }
   return data as T;
+}
+
+/** Sends a file, such as a logo, as the raw request body. */
+export async function sendFile<T>(method: string, path: string, file: Blob): Promise<T> {
+  return request<T>(method, path, file);
 }
 
 /** Fetches a file, such as a recording, as a Blob. Null when there is none (404). */

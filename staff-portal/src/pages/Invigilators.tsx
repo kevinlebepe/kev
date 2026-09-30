@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ActionButton, Badge, ErrorText, Field, Form, Loading, Page } from '../components/ui';
 import { request } from '../lib/api';
 import { useApi } from '../lib/useApi';
-import { connected } from '../lib/format';
+import { connected, parseCandidateCsv } from '../lib/format';
 
 interface Invigilator {
   id: string;
@@ -18,13 +18,23 @@ interface Invigilator {
 export function Invigilators() {
   const list = useApi<{ items: Invigilator[] }>('/invigilators?limit=100');
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   const update = async (i: Invigilator, status: string) => {
     await request('PATCH', `/invigilators/${i.id}`, { status });
     await list.reload();
   };
   return (
-    <Page title="Invigilators" actions={<button onClick={() => setAdding(!adding)}>Add an invigilator</button>}>
+    <Page
+      title="Invigilators"
+      actions={
+        <>
+          <button onClick={() => setAdding(!adding)}>Add an invigilator</button>
+          <button onClick={() => setImporting(!importing)}>Import a list</button>
+        </>
+      }
+    >
       {adding && <AddInvigilator onDone={() => (setAdding(false), list.reload())} onCancel={() => setAdding(false)} />}
+      {importing && <ImportInvigilators onDone={() => list.reload()} onCancel={() => setImporting(false)} />}
       <ErrorText error={list.error} />
       <Loading loading={list.loading} empty={list.data?.items.length === 0 && 'No invigilators yet.'}>
         <div className="table-wrap">
@@ -73,6 +83,44 @@ export function Invigilators() {
       </Loading>
       <p className="muted small">A paused invigilator keeps the candidates they already have but gets no new ones.</p>
     </Page>
+  );
+}
+
+/** Many invigilators at once, pasted from a spreadsheet: email, name, and optionally a staff number. */
+function ImportInvigilators({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [text, setText] = useState('');
+  const [result, setResult] = useState<{ created: { email: string }[]; failed: { email: string; reason: string }[] } | null>(null);
+  const rows = parseCandidateCsv(text).map((r) => ({ email: r.email, displayName: r.fullName, ...(r.studentId ? { staffId: r.studentId } : {}) }));
+  return (
+    <Form
+      submitText={`Import ${rows.length} invigilator${rows.length === 1 ? '' : 's'}`}
+      onCancel={onCancel}
+      onSubmit={async () => {
+        if (!rows.length) throw new Error('Paste at least one line: email, name');
+        const r = await request<{ created: { email: string }[]; failed: { email: string; reason: string }[] }>('POST', '/invigilators/import', { items: rows });
+        setResult(r);
+        onDone();
+      }}
+    >
+      <h2>Import invigilators</h2>
+      <Field label="One per line: email, full name, staff number (optional)" hint="Paste from a spreadsheet saved as CSV. Anyone without an account gets an email to choose a password.">
+        <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="thabo@example.ac.za, Thabo Mokoena, S1234" />
+      </Field>
+      {result && (
+        <div role="status">
+          <p className="banner ok">{result.created.length} added.</p>
+          {result.failed.length > 0 && (
+            <ul className="error">
+              {result.failed.map((f) => (
+                <li key={f.email}>
+                  {f.email}: {f.reason}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </Form>
   );
 }
 

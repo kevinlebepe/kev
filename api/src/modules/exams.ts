@@ -53,6 +53,19 @@ const setQuestionsBody = z.object({
     .refine((items) => new Set(items.map((i) => i.questionId)).size === items.length, 'Duplicate question'),
 });
 
+const setPoolsBody = z.object({
+  pools: z
+    .array(
+      z.object({
+        category: z.string().trim().max(200).nullable().optional(),
+        difficulty: z.enum(['easy', 'medium', 'hard']).nullable().optional(),
+        draw: z.number().int().min(1).max(200),
+        points: z.number().min(0).max(1000).default(1),
+      }),
+    )
+    .max(20),
+});
+
 interface ManifestQuestion {
   id: string;
   type: string;
@@ -60,6 +73,9 @@ interface ManifestQuestion {
   points: number;
   options: { id: string; label: string }[];
 }
+
+/** Which bank questions a pool may draw from: its category and difficulty, when set. */
+const POOL_MATCH = `(p.category IS NULL OR lower(q.category) = lower(p.category)) AND (p.difficulty IS NULL OR q.difficulty = p.difficulty)`;
 
 export async function examRoutes(app: FastifyInstance, deps: AppDeps) {
   const { db, config } = deps;
@@ -125,7 +141,15 @@ export async function examRoutes(app: FastifyInstance, deps: AppDeps) {
          FROM exam_versions WHERE exam_id = $1 ORDER BY version`,
       [id],
     );
-    return { ...rows[0], questions, versions };
+    const { rows: pools } = await db.query(
+      `SELECT p.id, p.category, p.difficulty, p.draw_count AS draw, p.points::float AS points,
+              (SELECT count(*)::int FROM questions q
+                WHERE q.organisation_id = $2 AND ${POOL_MATCH}
+                  AND q.id NOT IN (SELECT question_id FROM exam_questions WHERE exam_id = p.exam_id)) AS available
+         FROM exam_pools p WHERE p.exam_id = $1 ORDER BY p.position`,
+      [id, auth.organisationId],
+    );
+    return { ...rows[0], questions, pools, versions };
   });
 
   // Edits only ever touch the draft. Published versions are separate immutable
@@ -229,6 +253,34 @@ export async function examRoutes(app: FastifyInstance, deps: AppDeps) {
     });
   });
 
+  // Random draws from the question bank (spec section 6).
+  app.put('/exams/:id/pools', { preHandler: authorize('exam:create') }, async (req) => {
+    const auth = requireOrg(req);
+    const { id } = parse(idParams, req.params);
+    const { pools } = parse(setPoolsBody, req.body);
+    return withTransaction(db, async (tx) => {
+      const { rowCount } = await tx.query(
+        `SELECT 1 FROM exams WHERE id = $1 AND organisation_id = $2 AND status <> 'archived' FOR UPDATE`,
+        [id, auth.organisationId],
+      );
+      if (!rowCount) throw notFound('Exam');
+      await tx.query('DELETE FROM exam_pools WHERE exam_id = $1', [id]);
+      for (const [position, p] of pools.entries()) {
+        await tx.query(`INSERT INTO exam_pools (exam_id, position, category, difficulty, draw_count, points) VALUES ($1, $2, $3, $4, $5, $6)`, [
+          id,
+          position,
+          p.category || null,
+          p.difficulty ?? null,
+          p.draw,
+          p.points,
+        ]);
+      }
+      await tx.query('UPDATE exams SET updated_at = now() WHERE id = $1', [id]);
+      await audit(tx, { ...auditFrom(req), action: 'exam.set_pools', targetType: 'exam', targetId: id, data: { pools } });
+      return { examId: id, count: pools.length };
+    });
+  });
+
   app.post('/exams/:id/publish', { preHandler: authorize('exam:publish') }, async (req, reply) => {
     const auth = requireOrg(req);
     const { id } = parse(idParams, req.params);
@@ -266,6 +318,39 @@ export async function examRoutes(app: FastifyInstance, deps: AppDeps) {
           ORDER BY eq.position`,
         [id],
       );
+      // Each pool takes the bank questions that match it, leaving out the
+      // exam's fixed questions and any an earlier pool already took.
+      const { rows: poolRows } = await tx.query<{ id: string; category: string | null; difficulty: string | null; draw: number; points: number }>(
+        `SELECT id, category, difficulty, draw_count AS draw, points::float AS points FROM exam_pools p WHERE exam_id = $1 ORDER BY position`,
+        [id],
+      );
+      const taken = new Set(qs.map((q) => q.id));
+      const pools: { id: string; draw: number; questionIds: string[] }[] = [];
+      for (const [n, p] of poolRows.entries()) {
+        const { rows: members } = await tx.query<(typeof qs)[number]>(
+          `SELECT q.id, q.type, q.prompt, $3::float AS points,
+                  coalesce(json_agg(json_build_object('id', o.id, 'label', o.label, 'isCorrect', o.is_correct)
+                           ORDER BY o.position) FILTER (WHERE o.id IS NOT NULL), '[]') AS options
+             FROM exam_pools p
+             JOIN questions q ON q.organisation_id = $2 AND ${POOL_MATCH}
+             LEFT JOIN question_options o ON o.question_id = q.id
+            WHERE p.id = $1
+            GROUP BY q.id
+            ORDER BY q.created_at, q.id`,
+          [p.id, auth.organisationId, p.points],
+        );
+        const fresh = members.filter((m) => !taken.has(m.id));
+        if (fresh.length < p.draw) {
+          const what = [p.category && `category ${p.category}`, p.difficulty && `${p.difficulty} difficulty`].filter(Boolean).join(', ') || 'any question';
+          problems.push(`Pool ${n + 1} (${what}) needs ${p.draw} questions but the bank has ${fresh.length}`);
+          continue;
+        }
+        for (const m of fresh) {
+          taken.add(m.id);
+          qs.push(m);
+        }
+        pools.push({ id: p.id, draw: p.draw, questionIds: fresh.map((m) => m.id) });
+      }
       if (qs.length === 0) problems.push('At least one question is required');
       if (problems.length) throw badRequest('Exam is not ready to publish', problems);
 
@@ -292,6 +377,8 @@ export async function examRoutes(app: FastifyInstance, deps: AppDeps) {
         description: exam.description,
         config: configResult.data,
         questions,
+        // Each candidate gets `draw` of each pool's questions, chosen when they start.
+        ...(pools.length ? { pools } : {}),
       };
       // Correct answers stay server-side; the client is never trusted with them.
       const answerKey = Object.fromEntries(

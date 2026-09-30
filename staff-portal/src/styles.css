@@ -266,3 +266,5 @@ tr.flagged td { font-weight: 600; }
 @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
 .cases { list-style: none; padding: 0; display: grid; gap: 0.5rem; }
 .cases li.selected { outline: 3px solid var(--focus); }
+.pool { align-items: end; flex-wrap: wrap; gap: 0.5rem; }
+.logo-preview { max-height: 3rem; max-width: 10rem; border: 1px solid var(--border); border-radius: 6px; padding: 0.2rem; background: #fff; }

@@ -12,7 +12,7 @@ describe('question order', () => {
     expect(orderedQuestions(qs, null).map((q) => q.id)).toEqual(['a', 'b', 'c']);
   });
 
-  it('ignores unknown ids and never drops a question', () => {
-    expect(orderedQuestions(qs, ['b', 'x']).map((q) => q.id)).toEqual(['b', 'a', 'c']);
+  it('shows only the questions drawn for this candidate, ignoring unknown ids', () => {
+    expect(orderedQuestions(qs, ['b', 'x']).map((q) => q.id)).toEqual(['b']);
   });
 });

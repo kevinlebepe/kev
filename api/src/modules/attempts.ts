@@ -77,6 +77,8 @@ interface AttemptRow {
   /** Seconds since the app last checked in, or null before the first check in. */
   away_seconds: number | null;
   manifest: { questions: ManifestQuestion[]; config?: unknown };
+  /** The questions this candidate was given, when not every question in the version. */
+  question_order: string[] | null;
 }
 
 /** A silence longer than this is recorded as the candidate having been offline. */
@@ -160,7 +162,8 @@ function validateAnswer(q: ManifestQuestion, response: z.infer<typeof answerResp
 }
 
 async function applyAnswers(tx: Tx, attempt: AttemptRow, answers: z.infer<typeof answersBatch>): Promise<{ questionId: string; seq: number }[]> {
-  const byId = new Map(attempt.manifest.questions.map((q) => [q.id, q]));
+  const given = attempt.question_order ? new Set(attempt.question_order) : null;
+  const byId = new Map(attempt.manifest.questions.filter((q) => !given || given.has(q.id)).map((q) => [q.id, q]));
   for (const a of answers) {
     const q = byId.get(a.questionId);
     if (!q) throw badRequest(`Question ${a.questionId} is not part of this exam`);
@@ -210,6 +213,21 @@ export function shuffled<T>(items: readonly T[]): T[] {
   return out;
 }
 
+/**
+ * The questions one candidate gets, in order. Fixed questions always; from
+ * each pool, `draw` of its questions at random. Null when every candidate
+ * sees every question in the published order.
+ */
+export function drawQuestions(all: readonly string[], pools: readonly { draw: number; questionIds: string[] }[] | null, shuffle: boolean): string[] | null {
+  if (!pools?.length && !shuffle) return null;
+  const pooled = new Set((pools ?? []).flatMap((p) => p.questionIds));
+  const chosen = [...all.filter((id) => !pooled.has(id)), ...(pools ?? []).flatMap((p) => shuffled(p.questionIds).slice(0, p.draw))];
+  if (shuffle) return shuffled(chosen);
+  // Otherwise the published order, which already lists fixed questions first.
+  const rank = new Map(all.map((id, i) => [id, i]));
+  return chosen.sort((a, b) => rank.get(a)! - rank.get(b)!);
+}
+
 async function attemptView(q: Queryable, attemptId: string) {
   const { rows } = await q.query<{
     id: string;
@@ -251,7 +269,7 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
   async function lockAttempt(tx: Tx, attemptId: string, organisationId: string, candidateId: string): Promise<AttemptRow> {
     const { rows } = await tx.query<AttemptRow>(
       `SELECT at.id, at.organisation_id, at.assignment_id, at.exam_version_id, at.status, at.state,
-              at.started_at, at.deadline_at, now() AS now,
+              at.started_at, at.deadline_at, now() AS now, at.question_order,
               now() > at.deadline_at + make_interval(secs => $4) AS expired,
               extract(epoch FROM now() - at.last_seen_at)::int AS away_seconds,
               v.manifest
@@ -296,11 +314,13 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
         platform: string | null;
         extra_minutes: number;
         question_ids: string[] | null;
+        pools: { draw: number; questionIds: string[] }[] | null;
         candidate_notice: string | null;
       }>(
         `SELECT a.status, a.extra_minutes, c.status AS candidate_status, s.status AS session_status, s.starts_at, s.ends_at,
                 s.exam_version_id, v.manifest->'config' AS config,
                 (SELECT array_agg(q->>'id') FROM jsonb_array_elements(v.manifest->'questions') q) AS question_ids,
+                v.manifest->'pools' AS pools,
                 (SELECT id FROM attempts WHERE assignment_id = a.id) AS attempt_id,
                 now() < s.starts_at AS before_start,
                 now() > s.ends_at AS after_end,
@@ -350,7 +370,7 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
 
       // The order is chosen here on the server, once, so a reload or a second
       // device shows the same order and the signed package stays unchanged.
-      const questionOrder = parsed.navigation.randomiseQuestionOrder ? shuffled(row.question_ids ?? []) : null;
+      const questionOrder = drawQuestions(row.question_ids ?? [], row.pools, parsed.navigation.randomiseQuestionOrder);
       const { rows: created } = await tx.query<{ id: string }>(
         `INSERT INTO attempts (organisation_id, assignment_id, exam_version_id, deadline_at, question_order)
          VALUES ($1, $2, $3, LEAST(now() + make_interval(mins => $4), $5::timestamptz + make_interval(mins => $6)), $7) RETURNING id`,

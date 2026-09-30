@@ -218,3 +218,7 @@ a.button.primary { background: var(--accent); border-color: var(--accent); color
 .topbar-actions { display: flex; gap: 1rem; }
 label.check { display: flex; gap: 0.6rem; align-items: center; margin: 0; }
 label.check input { width: auto; margin: 0; flex: none; }
+
+/* The organisation's own name and logo on the sign in screen */
+.org-brand { display: flex; align-items: center; gap: 0.6rem; font-weight: 700; margin: 0 0 0.5rem; }
+.org-brand img { max-height: 2.5rem; max-width: 8rem; }

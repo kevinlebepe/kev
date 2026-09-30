@@ -4,6 +4,8 @@
 import { getDesktop } from './desktop';
 
 const BASE = import.meta.env.VITE_API_BASE ?? '/api';
+/** The API's address, for images the browser loads itself, such as a public logo. */
+export const API_BASE = BASE;
 const REFRESH_KEY = 'examguard.refresh';
 
 export class ApiError extends Error {
@@ -139,6 +141,15 @@ export async function signIn(organisation: string, email: string, password: stri
   accessToken = data.accessToken;
   storeRefresh(data.refreshToken);
   return {};
+}
+
+/** Signs in with an exam access code: a fallback for one exam, issued by the organisation. */
+export async function signInWithAccessCode(organisation: string, code: string): Promise<void> {
+  const res = await raw('POST', '/auth/access-code', { organisation, code }, null);
+  const data = await res.json().catch(() => undefined);
+  if (!res.ok) throw new ApiError(res.status, data?.error?.message ?? 'Sign in failed');
+  accessToken = data.accessToken;
+  storeRefresh(data.refreshToken);
 }
 
 export async function completeMfa(mfaToken: string, code: string): Promise<void> {

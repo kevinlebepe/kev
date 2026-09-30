@@ -31,6 +31,7 @@ interface AttemptRow {
   status: string;
   manifest: { questions: { id: string; type: string }[] };
   answer_key: AnswerKey;
+  question_order: string[] | null;
 }
 
 /** The exact bytes that are signed; a verifier rebuilds this from the receipt fields. */
@@ -51,7 +52,7 @@ export async function finalizeAttempt(
   actor: { userId: string | null; ip?: string },
 ): Promise<Receipt> {
   const { rows } = await tx.query<AttemptRow>(
-    `SELECT at.id, at.organisation_id, at.assignment_id, at.exam_version_id, at.status,
+    `SELECT at.id, at.organisation_id, at.assignment_id, at.exam_version_id, at.status, at.question_order,
             v.manifest, v.answer_key
        FROM attempts at JOIN exam_versions v ON v.id = at.exam_version_id
       WHERE at.id = $1 FOR UPDATE OF at`,
@@ -66,7 +67,7 @@ export async function finalizeAttempt(
     [attemptId],
   );
   const answers = new Map(answerRows.map((a) => [a.question_id, a.response]));
-  const total = attempt.manifest.questions.length;
+  const total = attempt.question_order?.length ?? attempt.manifest.questions.length;
 
   const packageSha256 = createHash('sha256')
     .update(

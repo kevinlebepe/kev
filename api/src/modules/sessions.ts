@@ -44,7 +44,14 @@ const TRANSITIONS: Record<string, string[]> = {
 
 const rosterBody = z.object({ invigilatorIds: z.array(z.uuid()).min(1).max(500) });
 
-const assignBody = z.object({ sessionId: z.uuid(), candidateIds: z.array(z.uuid()).min(1).max(5000) });
+const assignBody = z
+  .object({
+    sessionId: z.uuid(),
+    candidateIds: z.array(z.uuid()).max(5000).default([]),
+    /** Everyone in these groups, as well as any candidates named. */
+    groupIds: z.array(z.uuid()).max(100).default([]),
+  })
+  .refine((b) => b.candidateIds.length + b.groupIds.length > 0, 'Name at least one candidate or group');
 
 export async function sessionRoutes(app: FastifyInstance, deps: AppDeps) {
   const { db } = deps;
@@ -221,13 +228,26 @@ export async function sessionRoutes(app: FastifyInstance, deps: AppDeps) {
   // (account, approval and entitlement are separate; spec section 4).
   app.post('/assignments', { preHandler: authorize('session:manage') }, async (req) => {
     const auth = requireOrg(req);
-    const { sessionId, candidateIds } = parse(assignBody, req.body);
+    const { sessionId, candidateIds: named, groupIds } = parse(assignBody, req.body);
     return withTransaction(db, async (tx) => {
       const { rowCount } = await tx.query(
         `SELECT 1 FROM sessions WHERE id = $1 AND organisation_id = $2 AND status IN ('scheduled', 'open')`,
         [sessionId, auth.organisationId],
       );
       if (!rowCount) throw notFound('Session');
+      let candidateIds = named;
+      if (groupIds.length) {
+        const { rows: groups } = await tx.query<{ id: string }>('SELECT id FROM candidate_groups WHERE organisation_id = $1 AND id = ANY($2::uuid[])', [
+          auth.organisationId,
+          groupIds,
+        ]);
+        if (groups.length !== new Set(groupIds).size) throw notFound('Group');
+        const { rows: members } = await tx.query<{ candidate_id: string }>(
+          'SELECT DISTINCT candidate_id FROM candidate_group_members WHERE group_id = ANY($1::uuid[])',
+          [groupIds],
+        );
+        candidateIds = [...named, ...members.map((m) => m.candidate_id)];
+      }
 
       const { rows: candidates } = await tx.query<{ id: string; status: string; user_id: string | null; email: string }>(
         'SELECT id, status, user_id, email FROM candidates WHERE organisation_id = $1 AND id = ANY($2::uuid[])',

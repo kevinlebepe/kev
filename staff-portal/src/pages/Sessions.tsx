@@ -301,6 +301,7 @@ export function SessionDetail({ id }: { id: string }) {
                         <th>Rule breaks</th>
                         <th>Extra time</th>
                         <th>Score</th>
+                        {can(me, 'session:manage') && <th>Access code</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -336,6 +337,22 @@ export function SessionDetail({ id }: { id: string }) {
                           <td>
                             {a.score !== null ? `${a.score} / ${a.maxScore}` : ''} {a.markingStatus === 'pending' && <Badge value="pending" />}
                           </td>
+                          {can(me, 'session:manage') && (
+                            <td>
+                              {['assigned', 'precheck_complete', 'active'].includes(a.entitlementStatus) && (
+                                <ActionButton
+                                  className="small"
+                                  confirm={`Issue an exam access code for ${a.fullName}? It lets them sign in for this exam only, from an hour before the start until the end, and replaces any earlier code. Give it to them in person or by phone.`}
+                                  onClick={async () => {
+                                    const r = await request<{ code: string }>('POST', `/assignments/${a.assignmentId}/access-code`);
+                                    window.alert(`Access code for ${a.fullName}: ${r.code}\n\nThis is shown once. The candidate chooses "Use an exam access code" on the sign in screen.`);
+                                  }}
+                                >
+                                  Issue
+                                </ActionButton>
+                              )}
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -353,7 +370,9 @@ export function SessionDetail({ id }: { id: string }) {
 
 function AssignCandidates({ sessionId, onDone, onCancel }: { sessionId: string; onDone: () => void; onCancel: () => void }) {
   const approved = useApi<{ items: Candidate[] }>('/candidates?status=approved&limit=100');
+  const groups = useApi<{ items: { id: string; name: string; members: number }[] }>('/groups');
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [pickedGroups, setPickedGroups] = useState<Set<string>>(new Set());
   const [result, setResult] = useState<string | null>(null);
   const items = approved.data?.items ?? [];
   const toggle = (id: string) => {
@@ -364,11 +383,15 @@ function AssignCandidates({ sessionId, onDone, onCancel }: { sessionId: string; 
   };
   return (
     <Form
-      submitText={`Assign ${picked.size} candidate${picked.size === 1 ? '' : 's'}`}
+      submitText={`Assign ${picked.size} candidate${picked.size === 1 ? '' : 's'}${pickedGroups.size ? ` and ${pickedGroups.size} group${pickedGroups.size === 1 ? '' : 's'}` : ''}`}
       onCancel={onCancel}
       onSubmit={async () => {
-        if (!picked.size) throw new Error('Choose at least one candidate');
-        const r = await request<{ assigned: string[]; rejected: { reason: string }[] }>('POST', '/assignments', { sessionId, candidateIds: [...picked] });
+        if (!picked.size && !pickedGroups.size) throw new Error('Choose at least one candidate or group');
+        const r = await request<{ assigned: string[]; rejected: { reason: string }[] }>('POST', '/assignments', {
+          sessionId,
+          candidateIds: [...picked],
+          groupIds: [...pickedGroups],
+        });
         const already = r.rejected.filter((x) => x.reason === 'already_assigned').length;
         setResult(`${r.assigned.length} assigned.${already ? ` ${already} were already on this session.` : ''}`);
         if (!r.rejected.length || r.rejected.length === already) onDone();
@@ -376,6 +399,28 @@ function AssignCandidates({ sessionId, onDone, onCancel }: { sessionId: string; 
     >
       <h2>Assign candidates</h2>
       <p className="muted">Only approved candidates can be assigned. Each receives an email about the exam.</p>
+      {(groups.data?.items.length ?? 0) > 0 && (
+        <fieldset>
+          <legend>Whole groups</legend>
+          {groups.data!.items.map((g) => (
+            <label className="check" key={g.id}>
+              <input
+                type="checkbox"
+                checked={pickedGroups.has(g.id)}
+                onChange={() => {
+                  const next = new Set(pickedGroups);
+                  if (next.has(g.id)) next.delete(g.id);
+                  else next.add(g.id);
+                  setPickedGroups(next);
+                }}
+              />
+              <span>
+                {g.name} <span className="muted small">({g.members})</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      )}
       <ErrorText error={approved.error} />
       <Loading loading={approved.loading} empty={items.length === 0 && 'No approved candidates. Approve candidates under Candidates first.'}>
         <div className="row">
