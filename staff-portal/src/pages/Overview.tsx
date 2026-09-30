@@ -150,11 +150,20 @@ export function Overview() {
       <section className="card">
         <h2>How an exam runs</h2>
         <ol className="steps">
-          <li>Invite candidates, then approve them once they accept.</li>
-          <li>Create an exam, add questions, set the rules, then publish it. A published version never changes.</li>
-          <li>Create a session for the published version, assign candidates and roster invigilators.</li>
-          <li>Open the session. Candidates run the device check and sit the exam; invigilators watch the live console.</li>
-          <li>Mark free text answers, then release the results.</li>
+          <li>
+            <a href={href('candidates')}>Candidates</a>: invite them, or let them create an account, then approve them.
+          </li>
+          <li>
+            <a href={href('exams')}>Exams</a>: add questions, choose how closely to watch, then publish.
+          </li>
+          <li>
+            <a href={href('sessions')}>Sessions</a>: pick a date and time, then add candidates and invigilators. Candidates are shared out among the
+            invigilators by themselves.
+          </li>
+          <li>On the day, candidates sit the exam and invigilators watch the live console.</li>
+          <li>
+            <a href={href('marking')}>Marking and results</a>: mark written answers, then release the results.
+          </li>
         </ol>
       </section>
     </Page>

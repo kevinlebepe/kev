@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { getDesktop } from '../lib/desktop';
 import { fullscreenSupported } from '../lib/fullscreen';
 import { consequenceText, rulesFrom } from '../lib/examRules';
+import { BrandMark, useBrand } from '../lib/brand';
 import type { ExamManifest } from '../lib/types';
 
 function joinWithAnd(items: string[]): string {
@@ -62,10 +63,13 @@ export function RulesScreen({
     }
   }
 
+  const brand = useBrand();
   return (
     <main className="centered">
       <section className="card rules" aria-labelledby="rules-title">
-        <p className="brand">EXAMGUARD</p>
+        <p className="brand-line">
+          <BrandMark brand={brand} />
+        </p>
         <h1 id="rules-title">{manifest.name}</h1>
         <h2>{resuming ? 'Before you continue' : 'Before you start'}</h2>
 
@@ -119,6 +123,12 @@ export function RulesScreen({
             {screenShare.shared
               ? '✓ Your screen is being shared for the recording.'
               : 'This exam records your screen. Press Share my screen and choose your entire screen, not a window or a tab.'}
+          </p>
+        )}
+        {screenShare?.shared && (
+          <p className="muted small">
+            Your browser shows a small bar saying your screen is being shared. Leave it alone: clicking it, or switching to another window, takes you out of the
+            exam and is recorded.
           </p>
         )}
         {error && (

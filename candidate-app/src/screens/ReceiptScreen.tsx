@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { BrandMark, useBrand } from '../lib/brand';
 import type { Receipt } from '../lib/types';
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'medium' });
@@ -43,10 +44,13 @@ export function ReceiptScreen({
     }
   }
 
+  const brand = useBrand();
   return (
     <main className="centered">
       <section className="card receipt" aria-labelledby="receipt-title">
-        <p className="brand">EXAMGUARD</p>
+        <p className="brand-line">
+          <BrandMark brand={brand} />
+        </p>
         <h1 id="receipt-title">Your exam has been submitted</h1>
         <p className={`banner ${endedEarly ? 'bad' : timedOut ? 'warn' : 'ok'}`} role="status">
           {endedEarly

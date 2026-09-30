@@ -3,6 +3,7 @@ import { ActionButton, Badge, Check, ErrorText, Field, Form, Loading, Page } fro
 import { API_BASE, request, sendFile } from '../lib/api';
 import { label } from '../lib/format';
 import { can, useMe } from '../lib/session';
+import { BRANDING_CHANGED } from '../components/brand';
 import { useApi } from '../lib/useApi';
 
 const ROLES = ['admin', 'exam_manager', 'invigilator', 'reviewer', 'support', 'owner'];
@@ -167,6 +168,8 @@ function CandidateNotice({ current, onSaved }: { current: string | null; onSaved
   );
 }
 
+const brandingChanged = () => window.dispatchEvent(new Event(BRANDING_CHANGED));
+
 /** What candidates see of the organisation: its colour and logo (spec section 5). */
 function Branding({ colour, hasLogo, slug, onSaved }: { colour: string | null; hasLogo: boolean; slug: string; onSaved: () => void }) {
   const me = useMe();
@@ -175,8 +178,8 @@ function Branding({ colour, hasLogo, slug, onSaved }: { colour: string | null; h
   const [error, setError] = useState<string | null>(null);
   return (
     <>
-      <h3>Branding</h3>
-      <p className="muted small">Candidates see your colour and logo on the sign in screen of the exam app once they type your organisation code, {slug}.</p>
+      <h3>Your branding</h3>
+      <p className="muted small">Your colour and logo appear on the sign in screens, on every exam page candidates see, and in this portal. Candidates type your organisation code, {slug}, to sign in.</p>
       <div className="row">
         <label className="field narrow">
           <span>Colour</span>
@@ -185,6 +188,7 @@ function Branding({ colour, hasLogo, slug, onSaved }: { colour: string | null; h
         <ActionButton
           onClick={async () => {
             await request('PATCH', `/organisations/${me.organisationId}`, { brandColour: value });
+            brandingChanged();
             onSaved();
           }}
         >
@@ -195,6 +199,7 @@ function Branding({ colour, hasLogo, slug, onSaved }: { colour: string | null; h
             className="link"
             onClick={async () => {
               await request('PATCH', `/organisations/${me.organisationId}`, { brandColour: null });
+              brandingChanged();
               onSaved();
             }}
           >
@@ -216,6 +221,7 @@ function Branding({ colour, hasLogo, slug, onSaved }: { colour: string | null; h
               try {
                 await sendFile('PUT', `/organisations/${me.organisationId}/logo`, file);
                 setVersion(version + 1);
+                brandingChanged();
                 onSaved();
               } catch (err) {
                 setError((err as Error).message);
@@ -228,6 +234,7 @@ function Branding({ colour, hasLogo, slug, onSaved }: { colour: string | null; h
             className="link"
             onClick={async () => {
               await request('DELETE', `/organisations/${me.organisationId}/logo`);
+              brandingChanged();
               onSaved();
             }}
           >

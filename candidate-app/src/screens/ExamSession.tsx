@@ -16,6 +16,7 @@ import { type QueuedAnswer, SaveQueue, type SaveStatus } from '../lib/saveQueue'
 import type { SecureStore } from '../lib/secureStore';
 import type { AnswerResponse, AttemptView, ExamManifest, PendingEvent, Receipt, RulesReply } from '../lib/types';
 import { isAnswered, QuestionInput } from './QuestionInput';
+import { BrandMark, useBrand } from '../lib/brand';
 import { type EndedBy, ReceiptScreen, type UploadState } from './ReceiptScreen';
 
 export interface LocalState {
@@ -61,6 +62,7 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
   // In the desktop application the whole window is locked, so the browser's
   // full screen mode is not used and the window starts out in the right state.
   const desktop = getDesktop();
+  const brand = useBrand();
 
   const [clock] = useState(() => createServerClock(attempt.serverTime));
   const [answers, setAnswers] = useState<Record<string, AnswerResponse>>(() => {
@@ -462,10 +464,10 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
   const outOfFullscreen = rules.fullscreen && !isFullscreen;
   const security = manifest.config.security;
   const indicators = [
-    security.screenCapture && 'RECORDING',
-    security.camera && 'CAMERA',
-    security.microphone && 'MICROPHONE',
-    security.kiosk && 'SECURE MODE',
+    security.screenCapture && 'Screen recorded',
+    security.camera && 'Camera on',
+    security.microphone && 'Microphone on',
+    security.kiosk && desktop && 'Secure mode',
   ].filter(Boolean) as string[];
 
   return (
@@ -477,7 +479,7 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
             <p>The exam is hidden until you return to full screen. This has been recorded.</p>
             {notice && <p className="banner bad">{notice}</p>}
             <p className="timer-large" aria-label="Time remaining">
-              REMAINING <strong>{formatDuration(remaining)}</strong>
+              Time left <strong>{formatDuration(remaining)}</strong>
             </p>
             {returnFailed && (
               <p className="error" role="alert">
@@ -491,12 +493,24 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
         </div>
       )}
       <header className="exam-bar">
-        <span className="brand">EXAMGUARD</span>
-        <span>{manifest.name}</span>
+        <div className="exam-title">
+          <BrandMark brand={brand} compact />
+          <span className="exam-name">{manifest.name}</span>
+        </div>
         <span className={`timer ${warning !== 'none' ? 'urgent' : ''}`} role="timer" aria-label="Time remaining">
-          REMAINING <strong>{formatDuration(remaining)}</strong>
+          <span className="timer-label">Time left</span> <strong>{formatDuration(remaining)}</strong>
         </span>
       </header>
+      <div
+        className="progress"
+        role="progressbar"
+        aria-label="Questions answered"
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={answeredCount}
+      >
+        <span style={{ width: `${(answeredCount / total) * 100}%` }} />
+      </div>
 
       {warning !== 'none' && remaining > 0 && (
         <p className="banner warn time-warning" role="status">
@@ -543,18 +557,24 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
 
       <div className={`exam-body ${allowBacktrack ? 'with-nav' : ''}`}>
         {allowBacktrack && (
-          <nav className="qnav" aria-label="Questions">
+          <nav className="qnav card" aria-label="Questions">
+            <p className="qnav-head">
+              <strong>Questions</strong>
+              <span className="muted small">
+                {answeredCount} of {total} answered
+              </span>
+            </p>
             <ol>
               {questions.map((q, i) => (
                 <li key={q.id}>
                   <button
-                    className={i === index ? 'current' : ''}
+                    className={`${i === index ? 'current' : ''} ${isAnswered(answers[q.id]) ? 'answered' : ''}`}
                     aria-current={i === index ? 'step' : undefined}
                     aria-label={`Question ${i + 1}, ${isAnswered(answers[q.id]) ? 'answered' : 'not answered'}`}
                     disabled={busy}
                     onClick={() => goTo(i)}
                   >
-                    {i + 1} {isAnswered(answers[q.id]) ? '✓' : '○'}
+                    {i + 1}
                   </button>
                 </li>
               ))}
@@ -564,8 +584,13 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
 
         {phase === 'answering' || busy ? (
           <main className="question card">
-            <p className="muted">
-              QUESTION {index + 1} OF {total} · {question.points} {question.points === 1 ? 'mark' : 'marks'}
+            <p className="question-meta">
+              <span>
+                Question {index + 1} of {total}
+              </span>
+              <span className="marks">
+                {question.points} {question.points === 1 ? 'mark' : 'marks'}
+              </span>
             </p>
             <h1 className="prompt">{question.prompt}</h1>
             <div aria-disabled={busy}>
@@ -620,10 +645,12 @@ export function ExamSession({ manifest, attempt, local, localEvents, store, scre
           {SAVE_TEXT[saveStatus]}
         </span>
         {indicators.map((i) => (
-          <span key={i}>● {i}</span>
+          <span className="pill" key={i}>
+            <span className="dot" aria-hidden="true" /> {i}
+          </span>
         ))}
-        {rules.fullscreen && <span>{isFullscreen ? '✓ FULL SCREEN' : '✕ NOT IN FULL SCREEN'}</span>}
-        <span>✓ PACKAGE VERIFIED (v{manifest.version})</span>
+        {rules.fullscreen && <span className="pill">{isFullscreen ? 'Full screen' : 'Not in full screen'}</span>}
+        <span className="pill quiet">Verified exam, version {manifest.version}</span>
       </footer>
     </div>
   );

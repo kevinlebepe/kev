@@ -12,6 +12,7 @@ import { Entitlements } from './screens/Entitlements';
 import { DeviceCheck } from './screens/DeviceCheck';
 import { ExamView } from './screens/ExamView';
 import { type ReleasedResult, Results } from './screens/Results';
+import { BrandContext, BrandMark, useOrgBrand } from './lib/brand';
 
 type Screen =
   | { name: 'starting' }
@@ -69,6 +70,9 @@ export function App() {
     start.then((ok) => (ok ? load() : setScreen({ name: 'login' })));
   }, [load, onboarding]);
 
+  const signedIn = !['starting', 'login'].includes(screen.name);
+  const brand = useOrgBrand(signedIn);
+
   const toSignIn = () => {
     // The token must not stay in the address bar or the history once used.
     window.history.replaceState(null, '', '/');
@@ -83,12 +87,17 @@ export function App() {
 
   if (screen.name === 'starting') return <main className="centered">Starting…</main>;
   if (screen.name === 'login') return <Login onSignedIn={load} notice={notice} onRegister={() => setOnboarding({ kind: 'register', organisation: null })} />;
-  if (screen.name === 'exam') return <ExamView entitlement={screen.entitlement} onExit={load} />;
+  if (screen.name === 'exam')
+    return (
+      <BrandContext.Provider value={brand}>
+        <ExamView entitlement={screen.entitlement} onExit={load} />
+      </BrandContext.Provider>
+    );
 
   return (
     <div className="page">
       <header className="topbar">
-        <span className="brand">EXAMGUARD</span>
+        <BrandMark brand={brand} />
         <span className="topbar-actions">
           <button className="link" onClick={() => setScreen({ name: 'help' })}>
             Help

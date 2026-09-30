@@ -1,44 +1,29 @@
 :root {
-  --bg: #f5f6f8;
+  /* Light only: calm and easy to read during a long exam. */
+  --bg: #f6f7f9;
   --surface: #ffffff;
   --text: #1b1f24;
-  --muted: #5b6470;
-  --border: #d9dde3;
+  --muted: #5d6673;
+  --border: #e3e6eb;
+  --border-strong: #cfd4db;
   --accent: #1f5fbf;
   --accent-text: #ffffff;
-  --ok: #1e7a3c;
-  --ok-bg: #e7f4ec;
+  --accent-ink: #1f5fbf;
+  --accent-soft: #eaf1fb;
+  --ok: #1a7335;
+  --ok-bg: #e8f5ec;
   --bad: #b3261e;
-  --bad-bg: #fbeae9;
+  --bad-bg: #fcecea;
   --pending: #7a5a00;
   --warn: #8a5300;
-  --warn-bg: #fff2d9;
+  --warn-bg: #fff4de;
   --focus: #1f5fbf;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.06);
   color-scheme: light;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 16px;
-  line-height: 1.5;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #121418;
-    --surface: #1c1f25;
-    --text: #e8eaed;
-    --muted: #a0a7b1;
-    --border: #343943;
-    --accent: #6ea4ff;
-    --accent-text: #0b1020;
-    --ok: #7fd49a;
-    --ok-bg: #16301f;
-    --bad: #ff8a80;
-    --bad-bg: #3a1a18;
-    --pending: #e8c96b;
-    --warn: #ffcf70;
-    --warn-bg: #3a2c10;
-    --focus: #6ea4ff;
-    color-scheme: dark;
-  }
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
 
 * { box-sizing: border-box; }
@@ -222,3 +207,75 @@ label.check input { width: auto; margin: 0; flex: none; }
 /* The organisation's own name and logo on the sign in screen */
 .org-brand { display: flex; align-items: center; gap: 0.6rem; font-weight: 700; margin: 0 0 0.5rem; }
 .org-brand img { max-height: 2.5rem; max-width: 8rem; }
+
+
+/* ---- Refinements: light and quiet, with the organisation's own colour ---- */
+h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.01em; }
+a { color: var(--accent-ink); }
+button, a.button { border-color: var(--border-strong); font-weight: 500; transition: background 0.12s, filter 0.12s; }
+button:hover:not(:disabled) { background: var(--bg); }
+button.primary:hover:not(:disabled), a.button.primary:hover { background: var(--accent); filter: brightness(0.93); }
+button.link, button.link:hover:not(:disabled) { background: none; color: var(--accent-ink); }
+input, textarea { border-color: var(--border-strong); }
+input:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.card { border-color: var(--border); box-shadow: var(--shadow); }
+.brand { letter-spacing: 0; font-size: 1rem; color: var(--text); }
+.banner { font-weight: 500; }
+.topbar { padding: 0.75rem 24px; }
+.content { padding: 2rem 16px; }
+
+/* The organisation's logo and name */
+.brand-mark { display: inline-flex; align-items: center; gap: 0.6rem; font-weight: 700; color: var(--text); min-width: 0; }
+.brand-mark img { max-height: 2.25rem; max-width: 9rem; object-fit: contain; }
+.brand-mark.compact img { max-height: 1.9rem; max-width: 7rem; }
+.brand-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand-line { margin: 0 0 1rem; }
+.org-brand { font-size: 1.1rem; }
+.org-brand img { max-height: 3rem; max-width: 10rem; }
+
+/* The exam */
+.exam-shell { background: var(--bg); }
+.exam-bar { padding: 0.7rem 24px; border-bottom: 1px solid var(--border); box-shadow: var(--shadow); position: sticky; top: 0; z-index: 5; }
+.exam-title { display: flex; align-items: center; gap: 1rem; min-width: 0; }
+.exam-name { color: var(--muted); font-weight: 500; padding-left: 1rem; border-left: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.timer { display: inline-flex; align-items: baseline; gap: 0.5rem; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 0.3rem 0.9rem; }
+.timer-label { font-size: 0.85rem; color: var(--muted); }
+.timer strong { margin-left: 0; font-size: 1.1rem; }
+.timer.urgent { background: var(--warn-bg); border-color: var(--warn-bg); }
+.timer.urgent .timer-label { color: var(--warn); }
+.progress { height: 4px; background: var(--border); }
+.progress span { display: block; height: 100%; background: var(--accent); transition: width 0.3s; }
+
+.exam-body { padding: 2rem 24px; gap: 1.5rem; max-width: 1120px; }
+.exam-body.with-nav { grid-template-columns: 220px 1fr; }
+.question.card { padding: 2rem 2.25rem; }
+.question-meta { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 0.9rem; margin-bottom: 0.75rem; }
+.marks { background: var(--accent-soft); color: var(--accent-ink); border-radius: 999px; padding: 0.1rem 0.7rem; font-weight: 600; font-size: 0.8rem; }
+.prompt { font-size: 1.3rem; line-height: 1.5; font-weight: 600; margin-bottom: 1.5rem; white-space: pre-wrap; }
+.option { padding: 0.9rem 1.1rem; border-radius: 10px; background: var(--surface); transition: border-color 0.12s, background 0.12s; }
+.option:hover { border-color: var(--border-strong); background: #fafbfc; }
+.option.chosen, .option.chosen:hover { border-color: var(--accent); background: var(--accent-soft); }
+.option input { accent-color: var(--accent); width: 1.1rem; height: 1.1rem; }
+.question .row.spread { border-top: 1px solid var(--border); padding-top: 1.25rem; margin-top: 1.5rem; }
+
+.qnav.card { padding: 1rem; position: sticky; top: 5rem; }
+.qnav-head { display: flex; flex-direction: column; gap: 0.1rem; margin-bottom: 0.75rem; }
+.qnav ol { grid-template-columns: repeat(auto-fill, minmax(2.5rem, 1fr)); gap: 0.4rem; }
+.qnav button { padding: 0.45rem 0; border-radius: 8px; font-weight: 600; font-size: 0.9rem; }
+.qnav button.answered { background: var(--accent-soft); border-color: transparent; color: var(--accent-ink); }
+.qnav button.current { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); background: var(--surface); color: var(--text); }
+@media (max-width: 720px) {
+  .qnav.card { position: static; }
+  .exam-name { display: none; }
+  .question.card { padding: 1.25rem; }
+  .exam-body { padding: 1rem 12px; }
+}
+
+.exam-status { gap: 0.5rem; padding: 0.6rem 24px; font-weight: 500; background: var(--surface); }
+.pill { display: inline-flex; align-items: center; gap: 0.4rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.15rem 0.7rem; color: var(--muted); font-size: 0.8rem; }
+.pill .dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; background: var(--bad); }
+.pill.quiet { border-color: transparent; }
+.save-status { margin-right: auto; }
+.org-brand { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+.org-brand img { max-height: 3.5rem; max-width: 14rem; }
+.brand-mark img { max-width: 12rem; }

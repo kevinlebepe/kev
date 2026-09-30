@@ -1,11 +1,12 @@
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { rememberedOrganisation } from '../lib/brand';
 import { request } from '../lib/api';
 
 function Frame({ title, children }: { title: string; children: ReactNode }) {
   return (
     <main className="centered">
       <section className="card login" aria-labelledby="onboarding-title">
-        <p className="brand">EXAMGUARD</p>
+        <p className="brand">ExamGuard</p>
         <h1 id="onboarding-title">{title}</h1>
         {children}
       </section>
@@ -171,7 +172,7 @@ export function VerifyEmail({ token, onDone }: { token: string; onDone: () => vo
 
 /** Self registration for organisations that allow it. */
 export function Register({ organisation: initial, onDone }: { organisation: string | null; onDone: () => void }) {
-  const [organisation, setOrganisation] = useState(initial ?? '');
+  const [organisation, setOrganisation] = useState(initial ?? rememberedOrganisation());
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [studentId, setStudentId] = useState('');

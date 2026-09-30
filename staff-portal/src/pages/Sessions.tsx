@@ -183,6 +183,15 @@ const NEXT: Record<string, { status: string; text: string; confirm: string }[]> 
   ],
 };
 
+/** Shares unwatched candidates among the rostered invigilators, and says how it went. */
+async function shareOut(sessionId: string): Promise<string> {
+  const r = await request<{ assignments: unknown[]; unassigned: unknown[] }>('POST', '/live/assignments', { mode: 'auto', sessionId });
+  return (
+    `${r.assignments.length} candidate${r.assignments.length === 1 ? '' : 's'} shared out among the invigilators.` +
+    (r.unassigned.length ? ` ${r.unassigned.length} still need an invigilator: add more invigilators.` : '')
+  );
+}
+
 export function SessionDetail({ id }: { id: string }) {
   const me = useMe();
   const status = useApi<SessionStatus>(`/sessions/${id}/status`);
@@ -191,6 +200,14 @@ export function SessionDetail({ id }: { id: string }) {
   const [allocation, setAllocation] = useState<string | null>(null);
   const s = status.data;
   const reload = () => Promise.all([status.reload(), attempts.reload()]);
+  const assigned = s ? Object.values(s.assignments).reduce((a, b) => a + b, 0) - (s.assignments.revoked ?? 0) : 0;
+  const rostered = s?.invigilation.invigilators.length ?? 0;
+  // Once there are both candidates and invigilators, share candidates out without being asked.
+  const autoShare = async () => {
+    if (!can(me, 'invigilation:allocate')) return;
+    const fresh = await request<SessionStatus>('GET', `/sessions/${id}/status`);
+    if (fresh.invigilation.invigilators.length && fresh.invigilation.uncovered) setAllocation(await shareOut(id));
+  };
 
   return (
     <Page
@@ -202,7 +219,7 @@ export function SessionDetail({ id }: { id: string }) {
             {(NEXT[s.status] ?? []).map((n) => (
               <ActionButton
                 key={n.status}
-                className={n.status === 'cancelled' ? 'danger' : 'primary'}
+                className={n.status === 'cancelled' ? 'danger' : n.status === 'closed' ? '' : 'primary'}
                 confirm={n.confirm}
                 onClick={async () => {
                   await request('PATCH', `/sessions/${id}`, { status: n.status });
@@ -226,7 +243,7 @@ export function SessionDetail({ id }: { id: string }) {
               <Badge value={s.status} /> {formatDateTime(s.startsAt)} to {formatDateTime(s.endsAt)} · <a href={href('exams', s.examId)}>exam version {s.examVersion}</a>
             </p>
             <div className="stats">
-              <Stat label="assigned" value={Object.values(s.assignments).reduce((a, b) => a + b, 0) - (s.assignments.revoked ?? 0)} />
+              <Stat label="assigned" value={assigned} />
               <Stat label="device check passed" value={s.assignments.precheck_complete ?? 0} />
               <Stat label="in progress" value={s.assignments.active ?? 0} />
               <Stat label="submitted" value={(s.assignments.submitted ?? 0) + (s.assignments.completed ?? 0)} />
@@ -235,35 +252,69 @@ export function SessionDetail({ id }: { id: string }) {
 
             {['scheduled', 'open'].includes(s.status) && can(me, 'session:manage') && <Checklist sessionId={id} />}
 
-            {['scheduled', 'open'].includes(s.status) && (
-              <div className="row">
-                {can(me, 'session:manage') && <button onClick={() => setPanel(panel === 'assign' ? 'none' : 'assign')}>Assign candidates</button>}
-                {can(me, 'invigilation:allocate') && (
-                  <>
-                    <button onClick={() => setPanel(panel === 'roster' ? 'none' : 'roster')}>Roster invigilators</button>
-                    <ActionButton
-                      onClick={async () => {
-                        const r = await request<{ assignments: unknown[]; unassigned: unknown[] }>('POST', '/live/assignments', { mode: 'auto', sessionId: id });
-                        setAllocation(
-                          `${r.assignments.length} candidate${r.assignments.length === 1 ? '' : 's'} allocated.` +
-                            (r.unassigned.length ? ` ${r.unassigned.length} still need an invigilator: add more invigilators to the roster.` : ''),
-                        );
-                        await reload();
-                      }}
-                    >
-                      Allocate candidates to invigilators
-                    </ActionButton>
-                  </>
+            {['scheduled', 'open'].includes(s.status) && (can(me, 'session:manage') || can(me, 'invigilation:allocate')) && (
+              <section className="card setup">
+                <h2>Get this session ready</h2>
+                <ol className="setup-steps">
+                  <li className={assigned > 0 ? 'done' : ''}>
+                    <span className="step-mark" aria-hidden="true">{assigned > 0 ? '✓' : '1'}</span>
+                    <div>
+                      <strong>Candidates</strong>
+                      <p className="muted small">{assigned === 0 ? 'Nobody is on this session yet.' : `${assigned} candidate${assigned === 1 ? '' : 's'} on this session.`}</p>
+                    </div>
+                    {can(me, 'session:manage') && (
+                      <button onClick={() => setPanel(panel === 'assign' ? 'none' : 'assign')}>{assigned ? 'Add more' : 'Add candidates'}</button>
+                    )}
+                  </li>
+                  <li className={rostered > 0 ? 'done' : ''}>
+                    <span className="step-mark" aria-hidden="true">{rostered > 0 ? '✓' : '2'}</span>
+                    <div>
+                      <strong>Invigilators</strong>
+                      <p className="muted small">
+                        {rostered === 0 ? 'Nobody is watching yet.' : `${rostered} invigilator${rostered === 1 ? '' : 's'}, each watching up to 10 candidates.`}
+                      </p>
+                    </div>
+                    {can(me, 'invigilation:allocate') && (
+                      <button onClick={() => setPanel(panel === 'roster' ? 'none' : 'roster')}>{rostered ? 'Add more' : 'Add invigilators'}</button>
+                    )}
+                  </li>
+                  <li className={assigned > 0 && s.invigilation.uncovered === 0 ? 'done' : ''}>
+                    <span className="step-mark" aria-hidden="true">{assigned > 0 && s.invigilation.uncovered === 0 ? '✓' : '3'}</span>
+                    <div>
+                      <strong>Everyone watched</strong>
+                      <p className="muted small">
+                        {assigned === 0
+                          ? 'Candidates are shared out among the invigilators by themselves.'
+                          : s.invigilation.uncovered === 0
+                            ? 'Every candidate has an invigilator.'
+                            : rostered === 0
+                              ? `${s.invigilation.uncovered} without an invigilator: add invigilators above.`
+                              : `${s.invigilation.uncovered} without an invigilator. Add more invigilators, or share them out again.`}
+                      </p>
+                    </div>
+                    {can(me, 'invigilation:allocate') && rostered > 0 && s.invigilation.uncovered > 0 && (
+                      <ActionButton onClick={async () => setAllocation(await shareOut(id))}>Share out</ActionButton>
+                    )}
+                  </li>
+                </ol>
+                {allocation && (
+                  <p className="banner ok" role="status">
+                    {allocation}
+                  </p>
                 )}
-              </div>
+              </section>
             )}
-            {allocation && (
-              <p className="banner ok" role="status">
-                {allocation}
-              </p>
+            {panel === 'assign' && (
+              <AssignCandidates sessionId={id} onDone={async () => (setPanel('none'), await autoShare(), await reload())} onCancel={() => setPanel('none')} />
             )}
-            {panel === 'assign' && <AssignCandidates sessionId={id} onDone={() => (setPanel('none'), reload())} onCancel={() => setPanel('none')} />}
-            {panel === 'roster' && <Roster sessionId={id} current={s.invigilation.invigilators.map((i) => i.id)} onDone={() => (setPanel('none'), reload())} onCancel={() => setPanel('none')} />}
+            {panel === 'roster' && (
+              <Roster
+                sessionId={id}
+                current={s.invigilation.invigilators.map((i) => i.id)}
+                onDone={async () => (setPanel('none'), await autoShare(), await reload())}
+                onCancel={() => setPanel('none')}
+              />
+            )}
 
             <section className="card">
               <h2>Invigilators on this session</h2>
@@ -280,7 +331,7 @@ export function SessionDetail({ id }: { id: string }) {
                       {i.displayName} <Badge value={i.status} />{' '}
                       {connected(i.lastSeenAt) ? <Badge value="connected" tone="ok" /> : <Badge value="not_connected" tone="muted" />}{' '}
                       <span className="muted small">
-                        {i.load} candidates in this session{i.lastSeenAt && !connected(i.lastSeenAt) ? `, last seen ${formatTime(i.lastSeenAt)}` : ''}
+                        {i.load} candidate{i.load === 1 ? '' : 's'} in this session{i.lastSeenAt && !connected(i.lastSeenAt) ? `, last seen ${formatTime(i.lastSeenAt)}` : ''}
                       </span>
                     </li>
                   ))}
@@ -517,7 +568,11 @@ function AssignCandidates({ sessionId, onDone, onCancel }: { sessionId: string; 
 function Roster({ sessionId, current, onDone, onCancel }: { sessionId: string; current: string[]; onDone: () => void; onCancel: () => void }) {
   const invigilators = useApi<{ items: { id: string; displayName: string; email: string; status: string }[] }>('/invigilators?limit=100');
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const me = useMe();
   const available = (invigilators.data?.items ?? []).filter((i) => !current.includes(i.id));
+  // The quickest start, for a small organisation: the person setting up also watches.
+  const mine = invigilators.data?.items.find((i) => i.email.toLowerCase() === me.user.email.toLowerCase());
+  const canAddSelf = invigilators.data && !mine && can(me, 'invigilator:create');
   return (
     <Form
       submitText="Add to roster"
@@ -528,10 +583,28 @@ function Roster({ sessionId, current, onDone, onCancel }: { sessionId: string; c
         onDone();
       }}
     >
-      <h2>Roster invigilators</h2>
-      <p className="muted">Each invigilator watches at most 10 candidates at a time.</p>
+      <h2>Add invigilators</h2>
+      <p className="muted">Each invigilator watches up to 10 candidates at a time.</p>
       <ErrorText error={invigilators.error} />
-      <Loading loading={invigilators.loading} empty={available.length === 0 && 'Everyone is already rostered, or no invigilators exist yet. Add them under Invigilators.'}>
+      {canAddSelf && (
+        <p className="row">
+          <ActionButton
+            className="primary"
+            onClick={async () => {
+              const created = await request<{ id: string }>('POST', '/invigilators', { email: me.user.email, displayName: me.user.display_name });
+              await request('POST', `/sessions/${sessionId}/invigilators`, { invigilatorIds: [created.id] });
+              onDone();
+            }}
+          >
+            Invigilate this session myself
+          </ActionButton>
+          <span className="muted small">You keep your own role and can also watch candidates.</span>
+        </p>
+      )}
+      <Loading
+        loading={invigilators.loading}
+        empty={available.length === 0 && (canAddSelf ? 'No other invigilators yet. Add more under Invigilators.' : 'Everyone is already on this session, or no invigilators exist yet. Add them under Invigilators.')}
+      >
         <ul className="picklist">
           {available.map((i) => (
             <li key={i.id}>

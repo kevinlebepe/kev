@@ -1,4 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react';
+import { applyBrandColour, rememberedOrganisation } from '../lib/brand';
+
+export { textOn } from '../lib/brand';
 import { API_BASE, completeMfa, request, signIn, signInWithAccessCode, ssoStartUrl } from '../lib/api';
 
 type Step = { name: 'password' } | { name: 'code'; mfaToken: string } | { name: 'forgot' } | { name: 'sent'; message: string } | { name: 'access-code' };
@@ -12,16 +15,6 @@ interface Branding {
 }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{1,62}$/;
-
-/** Black or white, whichever reads better on a #rrggbb background (WCAG relative luminance). */
-export function textOn(hex: string): string {
-  const [r, g, b] = [1, 3, 5].map((i) => {
-    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  const l = 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
-  return (l + 0.05) / 0.05 > 1.05 / (l + 0.05) ? '#000000' : '#ffffff';
-}
 
 /**
  * The organisation's name, logo and colour once its code is typed, so a
@@ -48,21 +41,15 @@ function useBranding(organisation: string): Branding | null {
   }, [organisation]);
   useEffect(() => {
     // The organisation's colour becomes the app's accent until the page is closed.
-    const root = document.documentElement.style;
-    if (branding?.colour) {
-      root.setProperty('--accent', branding.colour);
-      root.setProperty('--accent-text', textOn(branding.colour));
-    } else {
-      root.removeProperty('--accent');
-      root.removeProperty('--accent-text');
-    }
+    applyBrandColour(branding?.colour);
   }, [branding?.colour]);
   return branding;
 }
 
 export function Login({ onSignedIn, onRegister, notice = null }: { onSignedIn: () => void; onRegister?: () => void; notice?: string | null }) {
   const [step, setStep] = useState<Step>({ name: 'password' });
-  const [organisation, setOrganisation] = useState('');
+  // Remembered from the last sign in on this device, or named in the link (?org=...).
+  const [organisation, setOrganisation] = useState(rememberedOrganisation);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
@@ -73,12 +60,13 @@ export function Login({ onSignedIn, onRegister, notice = null }: { onSignedIn: (
   const slug = organisation.trim().toLowerCase();
   const header = (
     <>
-      <p className="brand">EXAMGUARD</p>
-      {branding && (
+      {branding ? (
         <p className="org-brand">
           {branding.logo && <img src={`${API_BASE}/public/organisations/${slug}/logo`} alt="" />}
           <span>{branding.name}</span>
         </p>
+      ) : (
+        <p className="brand">ExamGuard</p>
       )}
     </>
   );
@@ -122,7 +110,7 @@ export function Login({ onSignedIn, onRegister, notice = null }: { onSignedIn: (
             })
           }
         >
-          <p className="brand">EXAMGUARD</p>
+          <p className="brand">ExamGuard</p>
           <h1 id="login-title">Enter your code</h1>
           <p>Type the 6 digit code from your authenticator app, or one of your recovery codes.</p>
           <label>
@@ -186,7 +174,7 @@ export function Login({ onSignedIn, onRegister, notice = null }: { onSignedIn: (
             })
           }
         >
-          <p className="brand">EXAMGUARD</p>
+          <p className="brand">ExamGuard</p>
           <h1 id="login-title">Forgot your password</h1>
           {step.name === 'sent' ? (
             <p className="banner ok" role="status">

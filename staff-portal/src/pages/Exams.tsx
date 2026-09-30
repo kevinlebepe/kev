@@ -259,6 +259,40 @@ const POLICY_TEXT: Record<Policy, string> = {
   submit_immediately: 'End the exam at the first break',
 };
 
+type Security = Config['security'];
+
+/** Three plain choices that set the camera, screen and lock rules together. */
+const PRESETS: { key: string; title: string; text: string; security: Partial<Security>; desktopApp: boolean }[] = [
+  {
+    key: 'open',
+    title: 'Open',
+    text: 'Any browser, no camera. For practice tests and quizzes.',
+    security: { fullscreen: false, blockClipboard: false, kiosk: false, camera: false, microphone: false, screenCapture: false },
+    desktopApp: false,
+  },
+  {
+    key: 'watched',
+    title: 'Watched (recommended)',
+    text: 'In the browser, full screen, with camera, microphone and screen recorded.',
+    security: { fullscreen: true, blockClipboard: true, kiosk: true, camera: true, microphone: true, screenCapture: true },
+    desktopApp: false,
+  },
+  {
+    key: 'locked',
+    title: 'Locked',
+    text: 'Everything in Watched, and laptops and desktops must use the ExamGuard desktop app, which locks the computer.',
+    security: { fullscreen: true, blockClipboard: true, kiosk: true, camera: true, microphone: true, screenCapture: true },
+    desktopApp: true,
+  },
+];
+
+function presetOf(c: Config): string | null {
+  const match = PRESETS.find(
+    (p) => p.desktopApp === c.device.requireDesktopApp && Object.entries(p.security).every(([k, v]) => c.security[k as keyof Security] === v),
+  );
+  return match?.key ?? null;
+}
+
 function Settings({ exam, onSaved }: { exam: ExamDetailData; onSaved: () => void }) {
   const [c, setC] = useState(() => withDefaults(exam.config));
   const [saved, setSaved] = useState(false);
@@ -304,7 +338,28 @@ function Settings({ exam, onSaved }: { exam: ExamDetailData; onSaved: () => void
       />
       <p className="muted small">When the time is up, the exam closes and the answers saved so far are submitted.</p>
 
-      <h3>Exam rules</h3>
+      <h3>How closely to watch</h3>
+      <div className="presets" role="group" aria-label="How closely to watch">
+        {PRESETS.map((p) => {
+          const chosen = presetOf(c) === p.key;
+          return (
+            <button
+              type="button"
+              key={p.key}
+              className={`preset ${chosen ? 'chosen' : ''}`}
+              aria-pressed={chosen}
+              onClick={() => setC({ ...c, security: { ...c.security, ...p.security }, device: { ...c.device, requireDesktopApp: p.desktopApp } })}
+            >
+              <strong>{p.title}</strong>
+              <span>{p.text}</span>
+            </button>
+          );
+        })}
+      </div>
+      {presetOf(c) === null && <p className="muted small">You have your own mix of rules, shown below.</p>}
+
+      <details className="fine-tune" open={presetOf(c) === null}>
+        <summary>Fine tune the rules</summary>
       <Check label="Full screen required" checked={c.security.fullscreen} onChange={(v) => sec({ fullscreen: v })} hint="Leaving full screen counts as a break." />
       <Check label="Block copy and paste" checked={c.security.blockClipboard} onChange={(v) => sec({ blockClipboard: v })} />
       <Check label="Lock the computer (secure mode)" checked={c.security.kiosk} onChange={(v) => sec({ kiosk: v })} />
@@ -327,6 +382,8 @@ function Settings({ exam, onSaved }: { exam: ExamDetailData; onSaved: () => void
           </Field>
         )}
       </div>
+
+      </details>
 
       <h3>Marking and results</h3>
       <Check

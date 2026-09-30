@@ -98,6 +98,11 @@ describe('branding', () => {
     expect(logo.headers['content-type']).toBe('image/png');
     expect(logo.rawPayload.equals(PNG)).toBe(true);
     expect((await call(h, 'GET', '/public/organisations/no-such-org-here/branding', null)).status).toBe(404);
+
+    // After sign in, the same branding for the person's own organisation.
+    const mine = await call(h, 'GET', '/me/branding', org.owner);
+    expect(mine.body).toEqual({ slug: org.slug, name: expect.any(String), colour: '#0a6e4f', logo: true });
+    expect((await call(h, 'GET', '/me/branding', null)).status).toBe(401);
   });
 });
 

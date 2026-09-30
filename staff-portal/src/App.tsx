@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { completeSso, request, resumeSession, signOut } from './lib/api';
+import { OrgBrand } from './components/brand';
 import { href, useRoute } from './lib/router';
 import { can, type Me, MeContext } from './lib/session';
 import { Login } from './pages/Login';
@@ -25,18 +26,34 @@ interface NavItem {
   permission: string;
 }
 
-const NAV: NavItem[] = [
-  { path: 'live', text: 'Live console', permission: 'live:view' },
-  { path: 'sessions', text: 'Sessions', permission: 'session:manage' },
-  { path: 'exams', text: 'Exams', permission: 'exam:create' },
-  { path: 'marking', text: 'Marking and results', permission: 'report:view' },
-  { path: 'reports', text: 'Reports', permission: 'report:view' },
-  { path: 'candidates', text: 'Candidates', permission: 'candidate:view' },
-  { path: 'invigilators', text: 'Invigilators', permission: 'invigilator:create' },
-  { path: 'support', text: 'Support', permission: 'support:manage' },
-  { path: 'staff', text: 'Staff', permission: 'organisation:manage_users' },
-  { path: 'integrations', text: 'Integrations', permission: 'organisation:manage_users' },
-  { path: 'audit', text: 'Audit log', permission: 'audit:view' },
+/** The menu, in the order work happens: prepare, run, mark; then people; then the rest. */
+const NAV: { heading: string; items: NavItem[] }[] = [
+  {
+    heading: 'Exams',
+    items: [
+      { path: 'exams', text: 'Exams', permission: 'exam:create' },
+      { path: 'sessions', text: 'Sessions', permission: 'session:manage' },
+      { path: 'live', text: 'Live console', permission: 'live:view' },
+      { path: 'marking', text: 'Marking and results', permission: 'report:view' },
+    ],
+  },
+  {
+    heading: 'People',
+    items: [
+      { path: 'candidates', text: 'Candidates', permission: 'candidate:view' },
+      { path: 'invigilators', text: 'Invigilators', permission: 'invigilator:create' },
+      { path: 'staff', text: 'Staff and settings', permission: 'organisation:manage_users' },
+    ],
+  },
+  {
+    heading: 'More',
+    items: [
+      { path: 'reports', text: 'Reports', permission: 'report:view' },
+      { path: 'support', text: 'Support', permission: 'support:manage' },
+      { path: 'integrations', text: 'Integrations', permission: 'organisation:manage_users' },
+      { path: 'audit', text: 'Audit log', permission: 'audit:view' },
+    ],
+  },
 ];
 
 export function App() {
@@ -96,16 +113,20 @@ export function App() {
     );
   }
 
-  const nav = NAV.filter((n) => can(me, n.permission));
   const [section, id, sub] = route;
+  const link = (n: NavItem) => (
+    <li key={n.path}>
+      <a href={href(n.path)} aria-current={section === n.path ? 'page' : undefined}>
+        {n.text}
+      </a>
+    </li>
+  );
 
   return (
     <MeContext.Provider value={me}>
       <div className="shell">
         <aside className="sidebar">
-          <a className="brand" href="#/">
-            EXAMGUARD
-          </a>
+          <OrgBrand />
           <nav aria-label="Sections">
             <ul>
               <li>
@@ -116,14 +137,18 @@ export function App() {
               <li>
                 <NotificationsLink current={section === 'notifications'} />
               </li>
-              {nav.map((n) => (
-                <li key={n.path}>
-                  <a href={href(n.path)} aria-current={section === n.path ? 'page' : undefined}>
-                    {n.text}
-                  </a>
-                </li>
-              ))}
             </ul>
+            {NAV.map((group) => {
+              const items = group.items.filter((n) => can(me, n.permission));
+              return (
+                items.length > 0 && (
+                  <div className="nav-group" key={group.heading}>
+                    <p className="nav-heading">{group.heading}</p>
+                    <ul>{items.map(link)}</ul>
+                  </div>
+                )
+              );
+            })}
           </nav>
           <div className="who">
             <span>{me.user.display_name}</span>

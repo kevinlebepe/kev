@@ -41,7 +41,7 @@ export function SystemStatus({ onDone }: { onDone: () => void }) {
   return (
     <main className="centered">
       <section className="card narrow" aria-labelledby="status-title">
-        <p className="brand">EXAMGUARD</p>
+        <p className="brand">ExamGuard</p>
         <h1 id="status-title">System status</h1>
         {error && (
           <p className="error" role="alert">

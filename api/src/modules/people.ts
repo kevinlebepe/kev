@@ -191,6 +191,18 @@ export async function peopleRoutes(app: FastifyInstance, deps: AppDeps) {
     return { name: rows[0].name, colour: rows[0].colour, logo: rows[0].logo, accessCodes: rows[0].access_codes, sso };
   });
 
+  // The signed in person's own organisation, so every screen after sign in
+  // (exams included) carries its name, logo and colour.
+  app.get('/me/branding', async (req) => {
+    const auth = requireOrg(req);
+    const { rows } = await db.query<{ slug: string; name: string; colour: string | null; logo: boolean }>(
+      'SELECT slug, name, brand_colour AS colour, logo_key IS NOT NULL AS logo FROM organisations WHERE id = $1',
+      [auth.organisationId],
+    );
+    if (!rows[0]) throw notFound('Organisation');
+    return rows[0];
+  });
+
   app.get('/public/organisations/:slug/logo', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (req, reply) => {
     const { slug } = parse(slugParams, req.params);
     const { rows } = await db.query<{ logo_key: string | null; logo_type: string | null }>('SELECT logo_key, logo_type FROM organisations WHERE slug = $1', [slug]);
