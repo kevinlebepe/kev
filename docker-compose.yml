@@ -1,0 +1,16 @@
+# Local development database only. Production uses managed, highly available
+# PostgreSQL with automated, restore-tested backups (spec sections 13-14).
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: examguard
+      POSTGRES_PASSWORD: examguard
+      POSTGRES_DB: examguard
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

@@ -1,0 +1,136 @@
+# Render blueprint: creates the database, the API and the two websites from
+# this repository. See docs/RENDER.md for the steps.
+#
+# Before you use it, change the three addresses marked CHANGE if your domain
+# is not invigilator.bakwenasa.co.za / api.bakwenasa.co.za.
+
+databases:
+  - name: examguard-db
+    databaseName: examguard
+    user: examguard
+    # Pick a paid plan: a free database is deleted after a short time.
+    # If Render does not accept this plan name, choose the plan in the dashboard.
+    plan: basic-1gb
+
+services:
+  # ---- The API ----
+  - type: web
+    name: examguard-api
+    runtime: node
+    rootDir: api
+    # A paid plan keeps the API awake. A sleeping API would fail an exam.
+    plan: starter
+    buildCommand: npm ci && npm run build
+    # Before each new version starts: create or update the tables, and make
+    # sure the platform administrator exists. Both are safe to repeat.
+    preDeployCommand: npm run migrate && npm run seed
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    # Recordings and answer files. A disk keeps them across deploys. For
+    # more than one API instance, use S3 storage instead (see docs/OPERATIONS.md).
+    disk:
+      name: recordings
+      mountPath: /var/data
+      sizeGB: 20
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: examguard-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: METRICS_TOKEN
+        generateValue: true
+      # Made once with: openssl genpkey -algorithm ed25519
+      # Paste the whole text, including the BEGIN and END lines.
+      - key: EXAM_SIGNING_PRIVATE_KEY
+        sync: false
+      - key: EXAM_SIGNING_KEY_ID
+        value: "2026-1"
+      # The first platform administrator (12 or more characters).
+      - key: SUPER_ADMIN_EMAIL
+        sync: false
+      - key: SUPER_ADMIN_PASSWORD
+        sync: false
+      # Optional: your first organisation and its owner, created on deploy.
+      # Leave ORGANISATION_SLUG empty to skip. See docs/RENDER.md, Step 3.
+      - key: ORGANISATION_SLUG
+        sync: false
+      - key: ORGANISATION_NAME
+        sync: false
+      - key: OWNER_EMAIL
+        sync: false
+      - key: OWNER_PASSWORD
+        sync: false
+      # CHANGE: the address of the websites.
+      - key: PUBLIC_BASE_URL
+        value: https://invigilator.bakwenasa.co.za
+      - key: PORTAL_BASE_URL
+        value: https://invigilator.bakwenasa.co.za/admin
+      - key: CORS_ORIGINS
+        value: https://invigilator.bakwenasa.co.za
+      # CHANGE: the address of the API, if you use single sign on.
+      - key: SSO_CALLBACK_URL
+        value: https://api.bakwenasa.co.za/auth/sso/callback
+      # Render's own proxy sits in front, so client addresses come from it.
+      - key: TRUST_PROXY
+        value: "true"
+      - key: RECORDING_DIR
+        value: /var/data/recordings
+      # Outgoing email, for example smtps://user:password@mail.example.com:465.
+      # Leave empty to send none; see docs/RENDER.md.
+      - key: SMTP_URL
+        sync: false
+      - key: MAIL_FROM
+        value: ExamGuard <no-reply@bakwenasa.co.za>
+
+  # ---- The two websites, as one static site ----
+  # The candidate website at the top, the staff portal under /admin/.
+  - type: web
+    name: examguard-websites
+    runtime: static
+    buildCommand: deploy/build-bundle.sh
+    staticPublishPath: deploy/bundle
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # CHANGE: these two are baked into the websites when they are built.
+      - key: API_URL
+        value: https://api.bakwenasa.co.za
+      - key: SITE_URL
+        value: https://invigilator.bakwenasa.co.za
+    # Files are served first; any other address goes to the candidate website,
+    # which handles addresses such as /invitation/... and /status itself.
+    routes:
+      - type: redirect
+        source: /admin
+        destination: /admin/
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=31536000
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(self), microphone=(self), display-capture=(self)
+      # CHANGE: the API address in the two places below.
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; connect-src 'self' https://api.bakwenasa.co.za; img-src 'self' data: blob: https://api.bakwenasa.co.za; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"

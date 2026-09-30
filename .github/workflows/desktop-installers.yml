@@ -1,0 +1,60 @@
+name: Desktop installers
+
+# Builds the ExamGuard desktop application for Windows, macOS and Linux and
+# keeps the installers as downloadable files on the workflow run. The exam
+# address is fixed into each build: set the EXAMGUARD_APP_URL repository
+# variable, or give one when starting the workflow by hand. Without either,
+# the build points at http://localhost:5173 for local testing.
+
+on:
+  push:
+    paths:
+      - desktop-app/**
+      - .github/workflows/desktop-installers.yml
+  workflow_dispatch:
+    inputs:
+      app_url:
+        description: Exam address to build in, for example https://exams.example.ac.za
+        required: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: --win
+            files: desktop-app/release/*.exe
+          - os: macos-latest
+            target: --mac
+            files: desktop-app/release/*.dmg
+          - os: ubuntu-latest
+            target: --linux
+            files: desktop-app/release/*.AppImage
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop-app
+    env:
+      # electron-builder downloads the Electron program it packages itself.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      EXAMGUARD_APP_URL: ${{ inputs.app_url || vars.EXAMGUARD_APP_URL || 'http://localhost:5173' }}
+      # No Apple or Windows signing certificate yet: see README, "Desktop installers".
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop-app/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run dist -- ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: examguard-${{ runner.os }}
+          path: ${{ matrix.files }}
+          retention-days: 14
+          if-no-files-found: error

@@ -1,0 +1,31 @@
+{
+  "name": "@examguard/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ExamGuard candidate desktop application: a locked down window around the exam screens",
+  "license": "UNLICENSED",
+  "main": "dist/main.js",
+  "scripts": {
+    "predev": "node scripts/ensure-electron.mjs",
+    "dev": "npm run build && electron .",
+    "start": "electron .",
+    "build": "tsc -p tsconfig.json && node scripts/write-config.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "dist": "npm run build && electron-builder --publish never"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  },
+  "author": "ExamGuard",
+  "homepage": "https://github.com/kevinlebepe/kev",
+  "desktopName": "examguard.desktop",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kevinlebepe/kev.git"
+  }
+}

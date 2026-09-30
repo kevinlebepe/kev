@@ -1,0 +1,40 @@
+name: API
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: examguard
+          POSTGRES_PASSWORD: examguard
+          POSTGRES_DB: examguard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U examguard"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+        env:
+          TEST_DATABASE_URL: postgres://examguard:examguard@localhost:5432/examguard_test
+      - run: npm audit --omit=dev --audit-level=high

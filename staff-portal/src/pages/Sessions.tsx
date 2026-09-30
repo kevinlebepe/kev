@@ -1,0 +1,632 @@
+import { useState } from 'react';
+import { ActionButton, Badge, ErrorText, Field, Form, Loading, Page, Stat } from '../components/ui';
+import { request } from '../lib/api';
+import { connected, formatDateTime, formatTime, isoToLocal, label, localToIso } from '../lib/format';
+import { href, navigate } from '../lib/router';
+import { can, useMe } from '../lib/session';
+import { useApi } from '../lib/useApi';
+import type { Candidate } from './Candidates';
+
+interface SessionRow {
+  id: string;
+  name: string;
+  status: string;
+  startsAt: string;
+  endsAt: string;
+  examName: string;
+  examVersion: number;
+  candidates: number;
+  submitted: number;
+}
+
+interface ExamVersion {
+  id: string;
+  code: string;
+  name: string;
+  version: number;
+  publishedAt: string;
+  durationMinutes: number | null;
+}
+
+export function Sessions() {
+  const [creating, setCreating] = useState(false);
+  const [status, setStatus] = useState('');
+  const list = useApi<{ items: SessionRow[] }>(`/sessions?limit=100${status ? `&status=${status}` : ''}`);
+  return (
+    <Page title="Sessions" actions={<button onClick={() => setCreating(!creating)}>New session</button>}>
+      {creating && <CreateSession onCancel={() => setCreating(false)} />}
+      <div className="filters">
+        <Field label="Status">
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            {['', 'scheduled', 'open', 'closed', 'cancelled'].map((s) => (
+              <option key={s} value={s}>
+                {s ? label(s) : 'All'}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+      <ErrorText error={list.error} />
+      <Loading loading={list.loading} empty={list.data?.items.length === 0 && 'No sessions yet.'}>
+        <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Session</th>
+              <th>Exam</th>
+              <th>Starts</th>
+              <th>Ends</th>
+              <th>Status</th>
+              <th>Candidates</th>
+              <th>Submitted</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.data?.items.map((s) => (
+              <tr key={s.id}>
+                <td>
+                  <a href={href('sessions', s.id)}>{s.name}</a>
+                </td>
+                <td>
+                  {s.examName} <span className="muted small">v{s.examVersion}</span>
+                </td>
+                <td>{formatDateTime(s.startsAt)}</td>
+                <td>{formatDateTime(s.endsAt)}</td>
+                <td>
+                  <Badge value={s.status} />
+                </td>
+                <td>{s.candidates}</td>
+                <td>{s.submitted}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        </div>
+      </Loading>
+    </Page>
+  );
+}
+
+function CreateSession({ onCancel }: { onCancel: () => void }) {
+  const versions = useApi<{ items: ExamVersion[] }>('/exam-versions?limit=100');
+  const [versionId, setVersionId] = useState('');
+  const [name, setName] = useState('');
+  const start = new Date(Date.now() + 60 * 60_000);
+  start.setMinutes(0, 0, 0);
+  const [startsAt, setStartsAt] = useState(isoToLocal(start));
+  const [endsAt, setEndsAt] = useState(isoToLocal(new Date(start.getTime() + 3 * 60 * 60_000)));
+
+  return (
+    <Form
+      submitText="Create session"
+      onCancel={onCancel}
+      onSubmit={async () => {
+        const created = await request<{ id: string }>('POST', '/sessions', {
+          examVersionId: versionId,
+          name: name.trim(),
+          startsAt: localToIso(startsAt),
+          endsAt: localToIso(endsAt),
+        });
+        navigate('sessions', created.id);
+      }}
+    >
+      <h2>New session</h2>
+      <ErrorText error={versions.error} />
+      {versions.data?.items.length === 0 && <p className="banner warn">Publish an exam first. Sessions always use a published version.</p>}
+      <div className="grid2">
+        <Field label="Exam version">
+          <select value={versionId} onChange={(e) => setVersionId(e.target.value)} required>
+            <option value="">Choose…</option>
+            {versions.data?.items.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.code} · {v.name} · version {v.version}
+                {v.durationMinutes ? ` · ${v.durationMinutes} min` : ''}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Session name" hint="For example: Main sitting, 14 October morning.">
+          <input value={name} onChange={(e) => setName(e.target.value)} required />
+        </Field>
+        <Field label="Starts">
+          <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} required />
+        </Field>
+        <Field label="Ends" hint="No attempt runs past this time.">
+          <input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} required />
+        </Field>
+      </div>
+    </Form>
+  );
+}
+
+interface SessionStatus {
+  id: string;
+  name: string;
+  status: string;
+  startsAt: string;
+  endsAt: string;
+  examVersion: number;
+  examId: string;
+  assignments: Record<string, number>;
+  invigilation: {
+    covered: number;
+    uncovered: number;
+    invigilators: { id: string; displayName: string; status: string; load: number; lastSeenAt: string | null }[];
+  };
+}
+
+interface AttemptRow {
+  candidateId: string;
+  fullName: string;
+  entitlementStatus: string;
+  attemptId: string | null;
+  status: string | null;
+  startedAt: string | null;
+  submittedAt: string | null;
+  submittedBy: string | null;
+  score: number | null;
+  maxScore: number | null;
+  markingStatus: string | null;
+  violations: number;
+  assignmentId: string;
+  extraMinutes: number;
+}
+
+const NEXT: Record<string, { status: string; text: string; confirm: string }[]> = {
+  scheduled: [
+    { status: 'open', text: 'Open session', confirm: 'Open the session? Candidates can start once the start time is reached.' },
+    { status: 'cancelled', text: 'Cancel session', confirm: 'Cancel this session? This cannot be undone.' },
+  ],
+  open: [
+    { status: 'closed', text: 'Close session', confirm: 'Close the session? No new attempts can start. Running attempts continue to their deadline.' },
+    { status: 'cancelled', text: 'Cancel session', confirm: 'Cancel this session? This cannot be undone.' },
+  ],
+};
+
+/** Shares unwatched candidates among the rostered invigilators, and says how it went. */
+async function shareOut(sessionId: string): Promise<string> {
+  const r = await request<{ assignments: unknown[]; unassigned: unknown[] }>('POST', '/live/assignments', { mode: 'auto', sessionId });
+  return (
+    `${r.assignments.length} candidate${r.assignments.length === 1 ? '' : 's'} shared out among the invigilators.` +
+    (r.unassigned.length ? ` ${r.unassigned.length} still need an invigilator: add more invigilators.` : '')
+  );
+}
+
+export function SessionDetail({ id }: { id: string }) {
+  const me = useMe();
+  const status = useApi<SessionStatus>(`/sessions/${id}/status`);
+  const attempts = useApi<{ items: AttemptRow[] }>(can(me, 'report:view') ? `/sessions/${id}/attempts?limit=100` : null);
+  const [panel, setPanel] = useState<'none' | 'assign' | 'roster'>('none');
+  const [allocation, setAllocation] = useState<string | null>(null);
+  const s = status.data;
+  const reload = () => Promise.all([status.reload(), attempts.reload()]);
+  const assigned = s ? Object.values(s.assignments).reduce((a, b) => a + b, 0) - (s.assignments.revoked ?? 0) : 0;
+  const rostered = s?.invigilation.invigilators.length ?? 0;
+  // Once there are both candidates and invigilators, share candidates out without being asked.
+  const autoShare = async () => {
+    if (!can(me, 'invigilation:allocate')) return;
+    const fresh = await request<SessionStatus>('GET', `/sessions/${id}/status`);
+    if (fresh.invigilation.invigilators.length && fresh.invigilation.uncovered) setAllocation(await shareOut(id));
+  };
+
+  return (
+    <Page
+      title={s ? s.name : 'Session'}
+      back={{ href: href('sessions'), text: 'Sessions' }}
+      actions={
+        s && (
+          <>
+            {(NEXT[s.status] ?? []).map((n) => (
+              <ActionButton
+                key={n.status}
+                className={n.status === 'cancelled' ? 'danger' : n.status === 'closed' ? '' : 'primary'}
+                confirm={n.confirm}
+                onClick={async () => {
+                  await request('PATCH', `/sessions/${id}`, { status: n.status });
+                  await reload();
+                }}
+              >
+                {n.text}
+              </ActionButton>
+            ))}
+            {can(me, 'live:view') && <a className="button" href={href('live', id)}>Live console</a>}
+            {can(me, 'report:view') && <a className="button" href={href('sessions', id, 'results')}>Results</a>}
+          </>
+        )
+      }
+    >
+      <ErrorText error={status.error} />
+      <Loading loading={status.loading}>
+        {s && (
+          <>
+            <p>
+              <Badge value={s.status} /> {formatDateTime(s.startsAt)} to {formatDateTime(s.endsAt)} · <a href={href('exams', s.examId)}>exam version {s.examVersion}</a>
+            </p>
+            <div className="stats">
+              <Stat label="assigned" value={assigned} />
+              <Stat label="device check passed" value={s.assignments.precheck_complete ?? 0} />
+              <Stat label="in progress" value={s.assignments.active ?? 0} />
+              <Stat label="submitted" value={(s.assignments.submitted ?? 0) + (s.assignments.completed ?? 0)} />
+              <Stat label="without an invigilator" value={s.invigilation.uncovered} tone={s.invigilation.uncovered ? 'warn' : ''} />
+            </div>
+
+            {['scheduled', 'open'].includes(s.status) && can(me, 'session:manage') && <Checklist sessionId={id} />}
+
+            {['scheduled', 'open'].includes(s.status) && (can(me, 'session:manage') || can(me, 'invigilation:allocate')) && (
+              <section className="card setup">
+                <h2>Get this session ready</h2>
+                <ol className="setup-steps">
+                  <li className={assigned > 0 ? 'done' : ''}>
+                    <span className="step-mark" aria-hidden="true">{assigned > 0 ? '✓' : '1'}</span>
+                    <div>
+                      <strong>Candidates</strong>
+                      <p className="muted small">{assigned === 0 ? 'Nobody is on this session yet.' : `${assigned} candidate${assigned === 1 ? '' : 's'} on this session.`}</p>
+                    </div>
+                    {can(me, 'session:manage') && (
+                      <button onClick={() => setPanel(panel === 'assign' ? 'none' : 'assign')}>{assigned ? 'Add more' : 'Add candidates'}</button>
+                    )}
+                  </li>
+                  <li className={rostered > 0 ? 'done' : ''}>
+                    <span className="step-mark" aria-hidden="true">{rostered > 0 ? '✓' : '2'}</span>
+                    <div>
+                      <strong>Invigilators</strong>
+                      <p className="muted small">
+                        {rostered === 0 ? 'Nobody is watching yet.' : `${rostered} invigilator${rostered === 1 ? '' : 's'}, each watching up to 10 candidates.`}
+                      </p>
+                    </div>
+                    {can(me, 'invigilation:allocate') && (
+                      <button onClick={() => setPanel(panel === 'roster' ? 'none' : 'roster')}>{rostered ? 'Add more' : 'Add invigilators'}</button>
+                    )}
+                  </li>
+                  <li className={assigned > 0 && s.invigilation.uncovered === 0 ? 'done' : ''}>
+                    <span className="step-mark" aria-hidden="true">{assigned > 0 && s.invigilation.uncovered === 0 ? '✓' : '3'}</span>
+                    <div>
+                      <strong>Everyone watched</strong>
+                      <p className="muted small">
+                        {assigned === 0
+                          ? 'Candidates are shared out among the invigilators by themselves.'
+                          : s.invigilation.uncovered === 0
+                            ? 'Every candidate has an invigilator.'
+                            : rostered === 0
+                              ? `${s.invigilation.uncovered} without an invigilator: add invigilators above.`
+                              : `${s.invigilation.uncovered} without an invigilator. Add more invigilators, or share them out again.`}
+                      </p>
+                    </div>
+                    {can(me, 'invigilation:allocate') && rostered > 0 && s.invigilation.uncovered > 0 && (
+                      <ActionButton onClick={async () => setAllocation(await shareOut(id))}>Share out</ActionButton>
+                    )}
+                  </li>
+                </ol>
+                {allocation && (
+                  <p className="banner ok" role="status">
+                    {allocation}
+                  </p>
+                )}
+              </section>
+            )}
+            {panel === 'assign' && (
+              <AssignCandidates sessionId={id} onDone={async () => (setPanel('none'), await autoShare(), await reload())} onCancel={() => setPanel('none')} />
+            )}
+            {panel === 'roster' && (
+              <Roster
+                sessionId={id}
+                current={s.invigilation.invigilators.map((i) => i.id)}
+                onDone={async () => (setPanel('none'), await autoShare(), await reload())}
+                onCancel={() => setPanel('none')}
+              />
+            )}
+
+            <section className="card">
+              <h2>Invigilators on this session</h2>
+              <p className="muted small">
+                While the session is open, candidates of an invigilator who is paused or has not had the live console open for 2 minutes move to one who is
+                connected and has room.
+              </p>
+              {s.invigilation.invigilators.length === 0 ? (
+                <p className="muted">None rostered yet.</p>
+              ) : (
+                <ul className="plain">
+                  {s.invigilation.invigilators.map((i) => (
+                    <li key={i.id}>
+                      {i.displayName} <Badge value={i.status} />{' '}
+                      {connected(i.lastSeenAt) ? <Badge value="connected" tone="ok" /> : <Badge value="not_connected" tone="muted" />}{' '}
+                      <span className="muted small">
+                        {i.load} candidate{i.load === 1 ? '' : 's'} in this session{i.lastSeenAt && !connected(i.lastSeenAt) ? `, last seen ${formatTime(i.lastSeenAt)}` : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {attempts.data && (
+              <section className="card">
+                <h2>Candidates</h2>
+                <Loading loading={attempts.loading} empty={attempts.data.items.length === 0 && 'No candidates assigned yet.'}>
+                  <div className="table-wrap">
+        <table>
+                    <thead>
+                      <tr>
+                        <th>Candidate</th>
+                        <th>Entitlement</th>
+                        <th>Started</th>
+                        <th>Submitted</th>
+                        <th>Rule breaks</th>
+                        <th>Extra time</th>
+                        <th>Score</th>
+                        {can(me, 'session:manage') && <th>Access code</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {attempts.data.items.map((a) => (
+                        <tr key={a.candidateId}>
+                          <td>{a.fullName}</td>
+                          <td>
+                            <Badge value={a.entitlementStatus} />
+                          </td>
+                          <td className="small">{formatDateTime(a.startedAt)}</td>
+                          <td className="small">
+                            {formatDateTime(a.submittedAt)} {a.submittedBy && a.submittedBy !== 'candidate' && <span className="muted">({label(a.submittedBy)})</span>}
+                          </td>
+                          <td className={a.violations ? 'bad' : ''}>{a.attemptId ? a.violations : ''}</td>
+                          <td className="small">
+                            {a.extraMinutes ? `${a.extraMinutes} min ` : ''}
+                            {can(me, 'session:manage') && !['submitted', 'completed', 'revoked'].includes(a.entitlementStatus) && (
+                              <ActionButton
+                                className="small"
+                                onClick={async () => {
+                                  const minutes = window.prompt(`Standing extra time for ${a.fullName}, in minutes (0 to remove):`, String(a.extraMinutes));
+                                  if (minutes === null) return;
+                                  const reason = window.prompt('Reason, for the record (for example an accommodation letter):');
+                                  if (!reason?.trim()) return;
+                                  await request('PATCH', `/assignments/${a.assignmentId}`, { extraMinutes: Number(minutes), reason: reason.trim() });
+                                  await attempts.reload();
+                                }}
+                              >
+                                {a.extraMinutes ? 'Change' : 'Add'}
+                              </ActionButton>
+                            )}
+                          </td>
+                          <td>
+                            {a.score !== null ? `${a.score} / ${a.maxScore}` : ''} {a.markingStatus === 'pending' && <Badge value="pending" />}
+                          </td>
+                          {can(me, 'session:manage') && (
+                            <td>
+                              {['assigned', 'precheck_complete', 'active'].includes(a.entitlementStatus) && (
+                                <ActionButton
+                                  className="small"
+                                  confirm={`Issue an exam access code for ${a.fullName}? It lets them sign in for this exam only, from an hour before the start until the end, and replaces any earlier code. Give it to them in person or by phone.`}
+                                  onClick={async () => {
+                                    const r = await request<{ code: string }>('POST', `/assignments/${a.assignmentId}/access-code`);
+                                    window.alert(`Access code for ${a.fullName}: ${r.code}\n\nThis is shown once. The candidate chooses "Use an exam access code" on the sign in screen.`);
+                                  }}
+                                >
+                                  Issue
+                                </ActionButton>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+        </div>
+                </Loading>
+              </section>
+            )}
+          </>
+        )}
+      </Loading>
+    </Page>
+  );
+}
+
+interface ChecklistData {
+  ready: boolean;
+  items: { key: string; label: string; state: 'ok' | 'warn' | 'todo'; detail: string; manual: boolean; doneBy?: string | null; doneAt?: string | null }[];
+}
+
+const CHECK_MARK = { ok: '✓', warn: '!', todo: '○' };
+
+/** The exam event checklist (spec section 21), for the days before and the day itself. */
+function Checklist({ sessionId }: { sessionId: string }) {
+  const list = useApi<ChecklistData>(`/sessions/${sessionId}/checklist`);
+  const [open, setOpen] = useState(false);
+  const d = list.data;
+  const outstanding = d?.items.filter((i) => i.state !== 'ok').length ?? 0;
+  return (
+    <section className="card">
+      <div className="row spread">
+        <h2>Before the exam</h2>
+        <button className="small" onClick={() => setOpen(!open)} aria-expanded={open}>
+          {open ? 'Hide' : 'Show'} checklist
+        </button>
+      </div>
+      <ErrorText error={list.error} />
+      {d && (
+        <p className={d.ready ? 'banner ok' : 'banner warn'} role="status">
+          {d.ready ? '✓ Everything on the checklist is done.' : `${outstanding} item${outstanding === 1 ? '' : 's'} to look at before the exam.`}
+        </p>
+      )}
+      {open && d && (
+        <ul className="checklist">
+          {d.items.map((i) => (
+            <li key={i.key} className={i.state}>
+              <span className="mark" aria-hidden="true">
+                {CHECK_MARK[i.state]}
+              </span>
+              <div>
+                <strong>{i.label}</strong>
+                <div className="small muted">
+                  {i.manual && i.state === 'ok' ? `Confirmed by ${i.doneBy ?? 'someone'} on ${formatDateTime(i.doneAt)}` : i.detail}
+                </div>
+              </div>
+              {i.manual && (
+                <ActionButton
+                  className="small"
+                  onClick={async () => {
+                    await request('PUT', `/sessions/${sessionId}/checklist/${i.key}`, { done: i.state !== 'ok' });
+                    await list.reload();
+                  }}
+                >
+                  {i.state === 'ok' ? 'Undo' : 'Mark done'}
+                </ActionButton>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function AssignCandidates({ sessionId, onDone, onCancel }: { sessionId: string; onDone: () => void; onCancel: () => void }) {
+  const approved = useApi<{ items: Candidate[] }>('/candidates?status=approved&limit=100');
+  const groups = useApi<{ items: { id: string; name: string; members: number }[] }>('/groups');
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [pickedGroups, setPickedGroups] = useState<Set<string>>(new Set());
+  const [result, setResult] = useState<string | null>(null);
+  const items = approved.data?.items ?? [];
+  const toggle = (id: string) => {
+    const next = new Set(picked);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setPicked(next);
+  };
+  return (
+    <Form
+      submitText={`Assign ${picked.size} candidate${picked.size === 1 ? '' : 's'}${pickedGroups.size ? ` and ${pickedGroups.size} group${pickedGroups.size === 1 ? '' : 's'}` : ''}`}
+      onCancel={onCancel}
+      onSubmit={async () => {
+        if (!picked.size && !pickedGroups.size) throw new Error('Choose at least one candidate or group');
+        const r = await request<{ assigned: string[]; rejected: { reason: string }[] }>('POST', '/assignments', {
+          sessionId,
+          candidateIds: [...picked],
+          groupIds: [...pickedGroups],
+        });
+        const already = r.rejected.filter((x) => x.reason === 'already_assigned').length;
+        setResult(`${r.assigned.length} assigned.${already ? ` ${already} were already on this session.` : ''}`);
+        if (!r.rejected.length || r.rejected.length === already) onDone();
+      }}
+    >
+      <h2>Assign candidates</h2>
+      <p className="muted">Only approved candidates can be assigned. Each receives an email about the exam.</p>
+      {(groups.data?.items.length ?? 0) > 0 && (
+        <fieldset>
+          <legend>Whole groups</legend>
+          {groups.data!.items.map((g) => (
+            <label className="check" key={g.id}>
+              <input
+                type="checkbox"
+                checked={pickedGroups.has(g.id)}
+                onChange={() => {
+                  const next = new Set(pickedGroups);
+                  if (next.has(g.id)) next.delete(g.id);
+                  else next.add(g.id);
+                  setPickedGroups(next);
+                }}
+              />
+              <span>
+                {g.name} <span className="muted small">({g.members})</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+      <ErrorText error={approved.error} />
+      <Loading loading={approved.loading} empty={items.length === 0 && 'No approved candidates. Approve candidates under Candidates first.'}>
+        <div className="row">
+          <button type="button" className="small" onClick={() => setPicked(new Set(items.map((c) => c.id)))}>
+            Select all
+          </button>
+          <button type="button" className="small" onClick={() => setPicked(new Set())}>
+            Clear
+          </button>
+        </div>
+        <ul className="picklist">
+          {items.map((c) => (
+            <li key={c.id}>
+              <label className="check">
+                <input type="checkbox" checked={picked.has(c.id)} onChange={() => toggle(c.id)} />
+                <span>
+                  {c.fullName} <span className="muted small">{c.email}</span>
+                </span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      </Loading>
+      {result && (
+        <p className="banner ok" role="status">
+          {result}
+        </p>
+      )}
+    </Form>
+  );
+}
+
+function Roster({ sessionId, current, onDone, onCancel }: { sessionId: string; current: string[]; onDone: () => void; onCancel: () => void }) {
+  const invigilators = useApi<{ items: { id: string; displayName: string; email: string; status: string }[] }>('/invigilators?limit=100');
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const me = useMe();
+  const available = (invigilators.data?.items ?? []).filter((i) => !current.includes(i.id));
+  // The quickest start, for a small organisation: the person setting up also watches.
+  const mine = invigilators.data?.items.find((i) => i.email.toLowerCase() === me.user.email.toLowerCase());
+  const canAddSelf = invigilators.data && !mine && can(me, 'invigilator:create');
+  return (
+    <Form
+      submitText="Add to roster"
+      onCancel={onCancel}
+      onSubmit={async () => {
+        if (!picked.size) throw new Error('Choose at least one invigilator');
+        await request('POST', `/sessions/${sessionId}/invigilators`, { invigilatorIds: [...picked] });
+        onDone();
+      }}
+    >
+      <h2>Add invigilators</h2>
+      <p className="muted">Each invigilator watches up to 10 candidates at a time.</p>
+      <ErrorText error={invigilators.error} />
+      {canAddSelf && (
+        <p className="row">
+          <ActionButton
+            className="primary"
+            onClick={async () => {
+              const created = await request<{ id: string }>('POST', '/invigilators', { email: me.user.email, displayName: me.user.display_name });
+              await request('POST', `/sessions/${sessionId}/invigilators`, { invigilatorIds: [created.id] });
+              onDone();
+            }}
+          >
+            Invigilate this session myself
+          </ActionButton>
+          <span className="muted small">You keep your own role and can also watch candidates.</span>
+        </p>
+      )}
+      <Loading
+        loading={invigilators.loading}
+        empty={available.length === 0 && (canAddSelf ? 'No other invigilators yet. Add more under Invigilators.' : 'Everyone is already on this session, or no invigilators exist yet. Add them under Invigilators.')}
+      >
+        <ul className="picklist">
+          {available.map((i) => (
+            <li key={i.id}>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={picked.has(i.id)}
+                  onChange={() => {
+                    const next = new Set(picked);
+                    if (next.has(i.id)) next.delete(i.id);
+                    else next.add(i.id);
+                    setPicked(next);
+                  }}
+                />
+                <span>
+                  {i.displayName} <span className="muted small">{i.email}</span> <Badge value={i.status} />
+                </span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      </Loading>
+    </Form>
+  );
+}

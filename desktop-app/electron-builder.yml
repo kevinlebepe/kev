@@ -1,0 +1,44 @@
+# Installers for Windows, macOS and Linux. See README "Desktop installers".
+appId: za.co.examguard.desktop
+productName: ExamGuard
+executableName: ExamGuard
+copyright: ExamGuard
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+# The "Open in the ExamGuard app" button uses examguard:// links.
+protocols:
+  - name: ExamGuard exam
+    schemes: [examguard]
+mac:
+  category: public.app-category.education
+  target:
+    - target: dmg
+      arch: [universal]
+  # Ad hoc signature: an Apple Developer ID is needed to sign and notarise
+  # properly (see README). Without any signature Apple silicon Macs refuse
+  # to open the application.
+  identity: '-'
+  hardenedRuntime: false
+  extendInfo:
+    NSCameraUsageDescription: ExamGuard records the camera during exams that require it.
+    NSMicrophoneUsageDescription: ExamGuard records the microphone during exams that require it.
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ExamGuard-Setup-${version}-${arch}.${ext}
+linux:
+  category: Education
+  executableName: examguard
+  syncDesktopName: true
+  target:
+    - target: AppImage
+      arch: [x64]
