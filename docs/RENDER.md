@@ -51,7 +51,20 @@ If you use different addresses, change the places marked `CHANGE` in `render.yam
 
 ## Step 3: create your organisation
 
-The administrator from Step 1 only creates organisations. Create yours once, from a terminal (a Mac has one):
+The administrator from Step 1 only creates organisations. The simplest way to create yours needs no terminal: in Render, open **examguard-api**, then **Environment**, and add these settings:
+
+| Setting | Value |
+|---|---|
+| `ORGANISATION_SLUG` | `bakwena` (the organisation code people type when signing in) |
+| `ORGANISATION_NAME` | `Bakwena SA` |
+| `ORGANISATION_MODE` | `employer` (or university, school, recruitment_agency, certification, other) |
+| `OWNER_EMAIL` | Your own email for the portal, different from the platform administrator's |
+| `OWNER_NAME` | Your name |
+| `OWNER_PASSWORD` | A password of 12 characters or more |
+
+Save, and let Render redeploy. The API's log shows `Organisation ready: bakwena` when it is done. The settings can stay: on later deploys the organisation is left as it is. If the log says `Organisation not created`, it names the setting to fix.
+
+If you prefer a terminal (a Mac has one), these two commands do the same:
 
 ```bash
 TOKEN=$(curl -s https://api.bakwenasa.co.za/auth/login -H 'content-type: application/json' \

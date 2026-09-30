@@ -57,6 +57,16 @@ services:
         sync: false
       - key: SUPER_ADMIN_PASSWORD
         sync: false
+      # Optional: your first organisation and its owner, created on deploy.
+      # Leave ORGANISATION_SLUG empty to skip. See docs/RENDER.md, Step 3.
+      - key: ORGANISATION_SLUG
+        sync: false
+      - key: ORGANISATION_NAME
+        sync: false
+      - key: OWNER_EMAIL
+        sync: false
+      - key: OWNER_PASSWORD
+        sync: false
       # CHANGE: the address of the websites.
       - key: PUBLIC_BASE_URL
         value: https://invigilator.bakwenasa.co.za
