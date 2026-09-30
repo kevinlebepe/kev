@@ -193,3 +193,15 @@ a.button.primary { background: var(--accent); border-color: var(--accent); color
 .results .score { margin: 0; font-size: 1.25rem; white-space: nowrap; }
 
 .banner.live-call { margin: 0; border-radius: 0; background: var(--bad-bg); color: var(--bad); }
+
+/* System status */
+.card.narrow { max-width: 32rem; width: 100%; }
+.status-summary { font-weight: 700; font-size: 1.1rem; }
+.status-summary.ok { color: var(--ok); }
+.status-summary.degraded { color: var(--warn); }
+.status-summary.down { color: var(--bad); }
+.status-list { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: 0.4rem; }
+.status-list li { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--border); padding: 0.4rem 0; }
+.status-list li.ok strong { color: var(--ok); }
+.status-list li.degraded strong { color: var(--warn); }
+.status-list li.down strong { color: var(--bad); }

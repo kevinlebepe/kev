@@ -247,3 +247,16 @@ tr.flagged td { font-weight: 600; }
 .notifications li.unread { border-left: 4px solid var(--accent); }
 .notifications p { margin: 0.4rem 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* System health */
+.health { list-style: none; padding: 0; margin: 0 0 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.health-item { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; padding: 0.5rem 0.8rem; min-width: 9rem; }
+.health-label { font-size: 0.85em; color: var(--muted); }
+.health-status { font-weight: 600; }
+.health-item.ok .health-status, .health-item.off .health-status { color: var(--ok); }
+.health-item.degraded .health-status { color: var(--warn); }
+.health-item.down .health-status { color: var(--bad); }
+.incidents { list-style: none; padding: 0; display: grid; gap: 0.4rem; }
+.incident { border-left: 4px solid var(--border); padding: 0.3rem 0.6rem; }
+.incident.high { border-color: var(--bad); }
+.incident.warning { border-color: var(--warn); }

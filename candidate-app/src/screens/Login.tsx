@@ -151,6 +151,9 @@ export function Login({ onSignedIn, onRegister }: { onSignedIn: () => void; onRe
         <p className="help">
           Need help? Contact your organisation’s exam support. Complete your device check well before exam day.
         </p>
+        <p className="help">
+          <a href="/status">System status</a>
+        </p>
         {onRegister && (
           <p className="help">
             New here and not invited?{' '}
