@@ -8,6 +8,7 @@ import { authorize, requireCandidate, requireOrg } from '../auth/context.js';
 import { audit, auditFrom } from '../audit.js';
 import { evidenceState, expectedStreams, type StreamType, verifySubmission } from '../recording.js';
 import { idParams, parse } from '../validation.js';
+import { recordUpload } from '../metrics.js';
 
 export const MAX_CHUNK_BYTES = 10 * 1024 * 1024;
 export const MAX_SNAPSHOT_BYTES = 512 * 1024;
@@ -125,6 +126,7 @@ export async function recordingRoutes(app: FastifyInstance, deps: AppDeps) {
       await verifySubmission(tx, id);
       return { duplicate: false };
     });
+    if (!result.duplicate) recordUpload(body.length);
     return reply.code(result.duplicate ? 200 : 201).send({ sequence, ...result });
   });
 

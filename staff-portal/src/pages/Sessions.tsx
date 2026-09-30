@@ -233,6 +233,8 @@ export function SessionDetail({ id }: { id: string }) {
               <Stat label="without an invigilator" value={s.invigilation.uncovered} tone={s.invigilation.uncovered ? 'warn' : ''} />
             </div>
 
+            {['scheduled', 'open'].includes(s.status) && can(me, 'session:manage') && <Checklist sessionId={id} />}
+
             {['scheduled', 'open'].includes(s.status) && (
               <div className="row">
                 {can(me, 'session:manage') && <button onClick={() => setPanel(panel === 'assign' ? 'none' : 'assign')}>Assign candidates</button>}
@@ -365,6 +367,65 @@ export function SessionDetail({ id }: { id: string }) {
         )}
       </Loading>
     </Page>
+  );
+}
+
+interface ChecklistData {
+  ready: boolean;
+  items: { key: string; label: string; state: 'ok' | 'warn' | 'todo'; detail: string; manual: boolean; doneBy?: string | null; doneAt?: string | null }[];
+}
+
+const CHECK_MARK = { ok: '✓', warn: '!', todo: '○' };
+
+/** The exam event checklist (spec section 21), for the days before and the day itself. */
+function Checklist({ sessionId }: { sessionId: string }) {
+  const list = useApi<ChecklistData>(`/sessions/${sessionId}/checklist`);
+  const [open, setOpen] = useState(false);
+  const d = list.data;
+  const outstanding = d?.items.filter((i) => i.state !== 'ok').length ?? 0;
+  return (
+    <section className="card">
+      <div className="row spread">
+        <h2>Before the exam</h2>
+        <button className="small" onClick={() => setOpen(!open)} aria-expanded={open}>
+          {open ? 'Hide' : 'Show'} checklist
+        </button>
+      </div>
+      <ErrorText error={list.error} />
+      {d && (
+        <p className={d.ready ? 'banner ok' : 'banner warn'} role="status">
+          {d.ready ? '✓ Everything on the checklist is done.' : `${outstanding} item${outstanding === 1 ? '' : 's'} to look at before the exam.`}
+        </p>
+      )}
+      {open && d && (
+        <ul className="checklist">
+          {d.items.map((i) => (
+            <li key={i.key} className={i.state}>
+              <span className="mark" aria-hidden="true">
+                {CHECK_MARK[i.state]}
+              </span>
+              <div>
+                <strong>{i.label}</strong>
+                <div className="small muted">
+                  {i.manual && i.state === 'ok' ? `Confirmed by ${i.doneBy ?? 'someone'} on ${formatDateTime(i.doneAt)}` : i.detail}
+                </div>
+              </div>
+              {i.manual && (
+                <ActionButton
+                  className="small"
+                  onClick={async () => {
+                    await request('PUT', `/sessions/${sessionId}/checklist/${i.key}`, { done: i.state !== 'ok' });
+                    await list.reload();
+                  }}
+                >
+                  {i.state === 'ok' ? 'Undo' : 'Mark done'}
+                </ActionButton>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

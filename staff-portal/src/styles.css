@@ -269,3 +269,11 @@ tr.flagged td { font-weight: 600; }
 .pool { align-items: end; flex-wrap: wrap; gap: 0.5rem; }
 .logo-preview { max-height: 3rem; max-width: 10rem; border: 1px solid var(--border); border-radius: 6px; padding: 0.2rem; background: #fff; }
 .provider { margin: 0.5rem 0; }
+
+/* Exam event checklist */
+.checklist { list-style: none; padding: 0; display: grid; gap: 0.5rem; }
+.checklist li { display: grid; grid-template-columns: 1.5rem 1fr auto; gap: 0.5rem; align-items: start; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+.checklist .mark { font-weight: 700; }
+.checklist li.ok .mark { color: var(--ok); }
+.checklist li.warn .mark { color: var(--warn); }
+.checklist li.todo .mark { color: var(--muted); }

@@ -12,12 +12,14 @@
     "test": "vitest run",
     "migrate:dev": "tsx src/scripts/migrate.ts",
     "seed:dev": "tsx src/scripts/seed.ts",
-    "demo:dev": "tsx src/scripts/demo.ts"
+    "demo:dev": "tsx src/scripts/demo.ts",
+    "loadtest:dev": "tsx src/scripts/loadtest.ts"
   },
   "license": "UNLICENSED",
   "dependencies": {
     "@fastify/rate-limit": "^11.2.0",
     "fastify": "^5.12.5",
+    "ioredis": "^5.11.1",
     "jose": "^6.2.12",
     "nodemailer": "^10.0.12",
     "pg": "^8.23.0",

@@ -22,15 +22,57 @@ import { systemRoutes } from './modules/system.js';
 import { governanceRoutes } from './modules/governance.js';
 import { peopleRoutes } from './modules/people.js';
 import { ssoRoutes } from './modules/sso.js';
+import { checklistRoutes } from './modules/checklist.js';
 import { storeFromConfig } from './storage.js';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { Redis } from 'ioredis';
+import { recordRequest, renderMetrics } from './metrics.js';
+
+/** The API's stable prefix for long lived integrations (spec section 16). Every route answers with and without it. */
+export const API_VERSION_PREFIX = '/v1';
 
 export async function buildApp(given: AppDeps, opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const deps: AppDeps = { ...given, store: given.store ?? storeFromConfig(given.config) };
-  const app = Fastify({ logger: opts.logger ?? false, trustProxy: deps.config.trustProxy, bodyLimit: 5 * 1024 * 1024 });
+  const app = Fastify({
+    logger: opts.logger ?? false,
+    trustProxy: deps.config.trustProxy,
+    bodyLimit: 5 * 1024 * 1024,
+    // A request id from the load balancer is kept, so one request can be followed through every log line.
+    requestIdHeader: 'x-request-id',
+    genReqId: () => randomUUID(),
+    // /v1/... is the same API as /...: integrations can pin the version.
+    rewriteUrl: (req) => (req.url === API_VERSION_PREFIX || req.url?.startsWith(`${API_VERSION_PREFIX}/`) ? req.url.slice(API_VERSION_PREFIX.length) || '/' : req.url!),
+  });
 
-  // Rate limits apply only where a route opts in (auth and public onboarding).
-  // Production should back this with Redis so limits hold across instances.
-  await app.register(rateLimit, { global: false });
+  // Rate limits apply only where a route opts in (sign in and public pages).
+  // With REDIS_URL they are shared by every instance behind the load balancer.
+  const redis = deps.config.redisUrl ? new Redis(deps.config.redisUrl, { connectTimeout: 2000, maxRetriesPerRequest: 1 }) : null;
+  redis?.on('error', (err) => app.log.warn({ err }, 'redis error'));
+  if (redis) app.addHook('onClose', async () => void (await redis.quit().catch(() => undefined)));
+  await app.register(rateLimit, { global: false, ...(redis ? { redis, nameSpace: 'examguard-rl-', skipOnError: true } : {}) });
+
+  // Only a well formed id is echoed back.
+  app.addHook('onRequest', async (req, reply) => {
+    if (!/^[A-Za-z0-9._-]{1,100}$/.test(String(req.id))) (req as { id: string }).id = randomUUID();
+    reply.header('x-request-id', req.id);
+  });
+  app.addHook('onResponse', async (req, reply) => {
+    recordRequest(req.method, req.routeOptions.url ?? 'unmatched', reply.statusCode, reply.elapsedTime / 1000);
+  });
+
+  // Metrics for the monitoring system. With METRICS_TOKEN set it must be
+  // presented; without it, metrics are off in production.
+  app.get('/metrics', async (req, reply) => {
+    const token = deps.config.metricsToken;
+    if (token) {
+      const given = Buffer.from(req.headers.authorization?.replace(/^Bearer /, '') ?? '');
+      const want = Buffer.from(token);
+      if (given.length !== want.length || !timingSafeEqual(given, want)) return reply.code(401).send({ error: { code: 'unauthorized', message: 'Metrics token required' } });
+    } else if (process.env.NODE_ENV === 'production') {
+      return reply.code(404).send({ error: { code: 'not_found', message: 'Not found' } });
+    }
+    return reply.header('content-type', 'text/plain; version=0.0.4').send(await renderMetrics(deps.db));
+  });
 
   app.decorateRequest('auth', null);
   app.addHook('onRequest', async (req) => {
@@ -59,7 +101,7 @@ export async function buildApp(given: AppDeps, opts: { logger?: boolean } = {}):
     }
   });
 
-  for (const routes of [authRoutes, organisationRoutes, candidateRoutes, examRoutes, sessionRoutes, invigilationRoutes, candidateAppRoutes, attemptRoutes, liveRoutes, resultRoutes, recordingRoutes, callRoutes, integrationRoutes, reportRoutes, notificationRoutes, systemRoutes, governanceRoutes, peopleRoutes, ssoRoutes]) {
+  for (const routes of [authRoutes, organisationRoutes, candidateRoutes, examRoutes, sessionRoutes, invigilationRoutes, candidateAppRoutes, attemptRoutes, liveRoutes, resultRoutes, recordingRoutes, callRoutes, integrationRoutes, reportRoutes, notificationRoutes, systemRoutes, governanceRoutes, peopleRoutes, ssoRoutes, checklistRoutes]) {
     await app.register(async (scope) => routes(scope, deps));
   }
   return app;
