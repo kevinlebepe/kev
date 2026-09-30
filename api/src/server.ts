@@ -2,7 +2,8 @@ import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createPool } from './db.js';
 import { finalizeExpiredAttempts } from './attempts.js';
-import { runFailover } from './failover.js';
+import { runFailover, runRotation } from './failover.js';
+import { releaseScheduledResults } from './results.js';
 import { deliverWebhooks } from './webhooks.js';
 import { deliverEmails, logTransport, type MailTransport, smtpTransport } from './mail.js';
 import { applyRetention } from './retention.js';
@@ -26,9 +27,14 @@ const sweeper = setInterval(() => {
 }, 30_000);
 sweeper.unref();
 
-// Moves candidates away from invigilators who have gone (see failover.ts).
+// Moves candidates away from invigilators who have gone, and rotates them when
+// the exam asks for it (see failover.ts).
 const failover = setInterval(() => {
-  runFailover(db).catch((err) => app.log.error(err, 'invigilator failover failed'));
+  runFailover(db)
+    .then(() => runRotation(db))
+    .catch((err) => app.log.error(err, 'invigilator failover or rotation failed'));
+  // Results whose exam set a release date that has now passed.
+  releaseScheduledResults(db).catch((err) => app.log.error(err, 'scheduled results release failed'));
 }, 30_000);
 failover.unref();
 

@@ -20,7 +20,12 @@ export interface AllocationResult {
 export function allocate(
   candidateIds: readonly string[],
   invigilators: readonly InvigilatorLoad[],
-  options: { sessionCap?: number; random?: () => number } = {},
+  options: {
+    sessionCap?: number;
+    random?: () => number;
+    /** For rotation: the invigilator each candidate should move away from, when anyone else has room. */
+    avoid?: ReadonlyMap<string, string>;
+  } = {},
 ): AllocationResult {
   const cap = (inv: InvigilatorLoad) =>
     Math.min(inv.capacity, options.sessionCap ?? PLATFORM_MAX_CANDIDATES_PER_INVIGILATOR, PLATFORM_MAX_CANDIDATES_PER_INVIGILATOR);
@@ -30,9 +35,11 @@ export function allocate(
   for (const candidateId of candidateIds) {
     // Least-loaded first keeps work balanced; ties broken randomly when
     // random monitoring is enabled, otherwise by id for determinism.
+    const avoid = options.avoid?.get(candidateId);
+    const eligible = pool.filter((inv) => inv.load < cap(inv));
+    const others = eligible.filter((inv) => inv.id !== avoid);
     let best: (typeof pool)[number] | undefined;
-    for (const inv of pool) {
-      if (inv.load >= cap(inv)) continue;
+    for (const inv of others.length ? others : eligible) {
       if (
         !best ||
         inv.load < best.load ||

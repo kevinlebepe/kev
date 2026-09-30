@@ -7,9 +7,10 @@ export const examConfig = z.object({
       durationMinutes: z.number().int().min(1).max(24 * 60).optional(),
       startWindowMinutes: z.number().int().min(0).max(24 * 60).default(15),
       lateEntryMinutes: z.number().int().min(0).max(24 * 60).default(0),
-      autoSubmit: z.boolean().default(true),
+      // There is no setting for automatic submission: the server owns the timer
+      // and always closes an attempt at its deadline, so answers are never lost.
     })
-    .default({ startWindowMinutes: 15, lateEntryMinutes: 0, autoSubmit: true }),
+    .default({ startWindowMinutes: 15, lateEntryMinutes: 0 }),
   security: z
     .object({
       kiosk: z.boolean().default(true),
@@ -57,7 +58,9 @@ export const examConfig = z.object({
       // Multiple response questions: all or nothing, or a share of the marks
       // for each correct choice less each wrong one (never below zero).
       partialCredit: z.enum(['none', 'proportional']).default('none'),
+      // Results are released on this date without anyone pressing release; results marked later follow as they are marked.
       releaseAt: z.iso.datetime({ offset: true }).optional(),
+      // A second person (with result:release, and not a marker of the script) confirms the marks before release.
       moderation: z.boolean().default(false),
     })
     .default({ autoMark: true, partialCredit: 'none', moderation: false }),

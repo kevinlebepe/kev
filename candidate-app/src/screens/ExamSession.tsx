@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { orderedQuestions } from '../lib/questionOrder';
 import { ApiError, request } from '../lib/api';
 import { createServerClock, formatDuration, timeWarning } from '../lib/clock';
 import { getDesktop } from '../lib/desktop';
@@ -53,7 +54,7 @@ function receiptFrom(err: unknown): Receipt | null {
 }
 
 export function ExamSession({ manifest, attempt, local, localEvents, store, screen = null, onExit }: Props) {
-  const questions = manifest.questions;
+  const questions = useMemo(() => orderedQuestions(manifest.questions, attempt.questionOrder), [manifest.questions, attempt.questionOrder]);
   const total = questions.length;
   const allowBacktrack = manifest.config.navigation.allowBacktrack;
   const rules = rulesFrom(manifest);

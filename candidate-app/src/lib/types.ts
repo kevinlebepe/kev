@@ -1,5 +1,5 @@
 export interface Requirements {
-  timing: { durationMinutes?: number; autoSubmit: boolean };
+  timing: { durationMinutes?: number };
   security: {
     kiosk: boolean;
     screenCapture: boolean;
@@ -101,6 +101,8 @@ export interface AttemptView {
   /** Server time when this response was produced; anchors the countdown. */
   serverTime: string;
   position: number;
+  /** Set when the exam shuffles its questions: the order chosen for this candidate. */
+  questionOrder?: string[] | null;
   answers: SavedAnswer[];
   receipt: Receipt | null;
   resumed?: boolean;

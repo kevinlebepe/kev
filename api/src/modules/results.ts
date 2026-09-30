@@ -5,12 +5,10 @@ import { withTransaction } from '../db.js';
 import { badRequest, conflict, notFound } from '../errors.js';
 import { authorize, requireCandidate, requireOrg } from '../auth/context.js';
 import { audit, auditFrom } from '../audit.js';
-import { notify } from '../notifications.js';
 import { AUTO_MARKED } from '../marking.js';
-import { loadMarkingInput, markFrom, recomputeResult } from '../results.js';
+import { loadMarkingInput, markFrom, percent, recomputeResult, releaseSessionResults } from '../results.js';
 import { COUNTED_EVENT_TYPES } from '../rules.js';
 import { idParams, parse } from '../validation.js';
-import { enqueueWebhook } from '../webhooks.js';
 
 const marksBody = z.object({
   marks: z
@@ -28,7 +26,6 @@ function csvCell(value: unknown): string {
   return /[",\n\r]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
 }
 
-const percent = (score: number | null, max: number | null) => (score === null || !max ? null : Math.round((score / max) * 1000) / 10);
 
 export async function resultRoutes(app: FastifyInstance, deps: AppDeps) {
   const { db } = deps;
@@ -74,6 +71,7 @@ export async function resultRoutes(app: FastifyInstance, deps: AppDeps) {
       submitted: items.length,
       pending: items.filter((r) => r.status === 'pending').length,
       marked: items.filter((r) => r.status === 'marked').length,
+      moderated: items.filter((r) => r.status === 'moderated').length,
       released: items.filter((r) => r.status === 'released').length,
     };
 
@@ -98,14 +96,25 @@ export async function resultRoutes(app: FastifyInstance, deps: AppDeps) {
   app.get('/marking/attempts/:id', { preHandler: authorize('result:mark') }, async (req) => {
     const auth = requireOrg(req);
     const { id } = parse(idParams, req.params);
-    const { rows } = await db.query<{ status: string; result_status: string | null; full_name: string; student_id: string | null; session_id: string; session_name: string; exam_name: string }>(
-      `SELECT at.status, r.status AS result_status, c.full_name, c.student_id, s.id AS session_id, s.name AS session_name, v.manifest->>'name' AS exam_name
+    const { rows } = await db.query<{
+      status: string;
+      result_status: string | null;
+      full_name: string;
+      student_id: string | null;
+      session_id: string;
+      session_name: string;
+      exam_name: string;
+      moderated_at: Date | null;
+      moderator: string | null;
+    }>(
+      `SELECT at.status, r.status AS result_status, r.moderated_at, mu.email AS moderator, c.full_name, c.student_id, s.id AS session_id, s.name AS session_name, v.manifest->>'name' AS exam_name
          FROM attempts at
          JOIN exam_assignments a ON a.id = at.assignment_id
          JOIN candidates c ON c.id = a.candidate_id
          JOIN sessions s ON s.id = a.session_id
          JOIN exam_versions v ON v.id = at.exam_version_id
          LEFT JOIN results r ON r.attempt_id = at.id
+         LEFT JOIN users mu ON mu.id = r.moderated_by
         WHERE at.id = $1 AND at.organisation_id = $2`,
       [id, auth.organisationId],
     );
@@ -126,6 +135,7 @@ export async function resultRoutes(app: FastifyInstance, deps: AppDeps) {
       score: mark.score,
       maxScore: mark.maxScore,
       needsManual: mark.needsManual,
+      moderation: { required: input.moderation, moderatedAt: row.moderated_at, moderatedBy: row.moderator },
       questions: input.questions.map((q) => {
         const m = byId.get(q.id);
         const key = input.answerKey[q.id];
@@ -137,7 +147,7 @@ export async function resultRoutes(app: FastifyInstance, deps: AppDeps) {
           answer: input.answers.get(q.id) ?? null,
           maxPoints: m?.maxPoints ?? q.points,
           awarded: m?.awarded ?? null,
-          auto: AUTO_MARKED.has(q.type),
+          auto: m?.auto ?? AUTO_MARKED.has(q.type),
           comment: input.manual.get(q.id)?.comment ?? null,
         };
       }),
@@ -164,7 +174,7 @@ export async function resultRoutes(app: FastifyInstance, deps: AppDeps) {
       for (const m of marks) {
         const q = questions.get(m.questionId);
         if (!q) throw badRequest(`Question ${m.questionId} is not part of this exam`);
-        if (AUTO_MARKED.has(q.type)) throw badRequest(`Question ${m.questionId} is marked automatically`);
+        if (AUTO_MARKED.has(q.type) && input.autoMark) throw badRequest(`Question ${m.questionId} is marked automatically`);
         const max = input.answerKey[q.id]?.points ?? 0;
         if (m.points > max) throw badRequest(`Question ${m.questionId} is worth at most ${max}`);
         await tx.query(
@@ -180,6 +190,31 @@ export async function resultRoutes(app: FastifyInstance, deps: AppDeps) {
     });
   });
 
+  // Moderation: a second person confirms the marks before release, when the
+  // exam asks for it. The moderator cannot be someone who marked this script.
+  // Any later change to the marks sends the result back for moderation.
+  app.post('/marking/attempts/:id/moderate', { preHandler: authorize('result:release') }, async (req) => {
+    const auth = requireOrg(req);
+    const { id } = parse(idParams, req.params);
+    return withTransaction(db, async (tx) => {
+      const { rows } = await tx.query<{ status: string | null }>(
+        `SELECT r.status FROM attempts at LEFT JOIN results r ON r.attempt_id = at.id
+          WHERE at.id = $1 AND at.organisation_id = $2 FOR UPDATE OF at`,
+        [id, auth.organisationId],
+      );
+      if (!rows[0]) throw notFound('Attempt');
+      const status = rows[0].status;
+      if (status === 'released') throw conflict('This result has already been released');
+      if (status === 'moderated') throw conflict('This result has already been moderated');
+      if (status !== 'marked') throw conflict('Marking must be complete before moderation');
+      const { rowCount: ownMarks } = await tx.query('SELECT 1 FROM manual_marks WHERE attempt_id = $1 AND marked_by = $2 LIMIT 1', [id, auth.userId]);
+      if (ownMarks) throw conflict('Someone other than the marker must moderate this script');
+      await tx.query(`UPDATE results SET status = 'moderated', moderated_by = $2, moderated_at = now() WHERE attempt_id = $1`, [id, auth.userId]);
+      await audit(tx, { ...auditFrom(req), action: 'result.moderate', targetType: 'attempt', targetId: id });
+      return { status: 'moderated' };
+    });
+  });
+
   // Releases every fully marked result in a session. Results still waiting for a marker stay unreleased.
   app.post('/sessions/:id/results/release', { preHandler: authorize('result:release') }, async (req) => {
     const auth = requireOrg(req);
@@ -190,48 +225,9 @@ export async function resultRoutes(app: FastifyInstance, deps: AppDeps) {
         auth.organisationId,
       ]);
       if (!rowCount) throw notFound('Session');
-      const { rows: released } = await tx.query<{ attempt_id: string; user_id: string | null; email: string }>(
-        `UPDATE results r SET status = 'released', released_at = now(), released_by = $3
-           FROM attempts at JOIN exam_assignments a ON a.id = at.assignment_id JOIN candidates c ON c.id = a.candidate_id
-          WHERE r.attempt_id = at.id AND a.session_id = $1 AND r.organisation_id = $2 AND r.status IN ('marked', 'moderated')
-          RETURNING r.attempt_id, c.user_id, c.email`,
-        [id, auth.organisationId, auth.userId],
-      );
-      for (const r of released) {
-        const { rows: detail } = await tx.query(
-          `SELECT at.id AS "attemptId", r.score::float AS score, r.max_score::float AS "maxScore", r.released_at AS "releasedAt",
-                  s.id AS "sessionId", s.name AS "sessionName", v.manifest->>'code' AS "examCode", v.version AS "examVersion",
-                  json_build_object('id', c.id, 'email', c.email, 'studentId', c.student_id, 'fullName', c.full_name) AS candidate
-             FROM results r JOIN attempts at ON at.id = r.attempt_id
-             JOIN exam_assignments a ON a.id = at.assignment_id JOIN candidates c ON c.id = a.candidate_id
-             JOIN sessions s ON s.id = a.session_id JOIN exam_versions v ON v.id = at.exam_version_id
-            WHERE r.attempt_id = $1`,
-          [r.attempt_id],
-        );
-        const d = detail[0] as { score: number; maxScore: number };
-        await enqueueWebhook(tx, auth.organisationId, 'result.released', { ...d, percent: percent(d.score, d.maxScore) });
-        await notify(tx, {
-          organisationId: auth.organisationId,
-          kind: 'result_released',
-          channel: 'email',
-          recipientUserId: r.user_id,
-          recipientEmail: r.email,
-          payload: { sessionId: id },
-        });
-      }
-      const { rows: pending } = await tx.query<{ n: number }>(
-        `SELECT count(*)::int AS n FROM results r JOIN attempts at ON at.id = r.attempt_id
-           JOIN exam_assignments a ON a.id = at.assignment_id WHERE a.session_id = $1 AND r.status = 'pending'`,
-        [id],
-      );
-      await audit(tx, {
-        ...auditFrom(req),
-        action: 'results.release',
-        targetType: 'session',
-        targetId: id,
-        data: { released: released.length, pending: pending[0]!.n },
-      });
-      return { released: released.length, stillPending: pending[0]!.n };
+      const out = await releaseSessionResults(tx, auth.organisationId, id, auth.userId);
+      await audit(tx, { ...auditFrom(req), action: 'results.release', targetType: 'session', targetId: id, data: out });
+      return out;
     });
   });
 

@@ -9,6 +9,7 @@ import { finalizeAttempt } from '../attempts.js';
 import { liveStatus, PLATFORM_MAX_CANDIDATES_PER_INVIGILATOR } from '../allocation.js';
 import { COUNTED_EVENT_TYPES } from '../rules.js';
 import { idParams, parse } from '../validation.js';
+import { examConfig } from '../examConfig.js';
 
 /** A candidate counts as online while the app has checked in within this many seconds. */
 export const ONLINE_WINDOW_SECONDS = 45;
@@ -73,6 +74,15 @@ export async function scopedAttempt(q: Queryable, auth: OrgAuth, v: Viewer, atte
   );
   if (!rows[0]) throw notFound('Attempt');
   return rows[0];
+}
+
+/** How the exam lets staff contact a candidate: voice, text, or both (spec section 6). */
+export async function communicationPolicy(q: Queryable, attemptId: string): Promise<'voice' | 'text' | 'voice_and_text'> {
+  const { rows } = await q.query<{ config: unknown }>(
+    `SELECT v.manifest->'config' AS config FROM attempts at JOIN exam_versions v ON v.id = at.exam_version_id WHERE at.id = $1`,
+    [attemptId],
+  );
+  return examConfig.parse(rows[0]?.config ?? {}).invigilation.communication;
 }
 
 async function recordStaffEvent(tx: Tx, auth: OrgAuth, v: Viewer, attemptId: string, type: string, severity: string, data: object) {
@@ -194,7 +204,7 @@ export async function liveRoutes(app: FastifyInstance, deps: AppDeps) {
         WHERE m.attempt_id = $1 ORDER BY m.seq`,
       [id],
     );
-    return { ...rows[0], scope: v.scope, timeline, messages };
+    return { ...rows[0], scope: v.scope, communication: await communicationPolicy(db, id), timeline, messages };
   });
 
   // The latest camera still of a candidate in scope.
@@ -222,6 +232,10 @@ export async function liveRoutes(app: FastifyInstance, deps: AppDeps) {
       const v = await viewer(tx, auth);
       const a = await scopedAttempt(tx, auth, v, id, true);
       if (a.status !== 'active') throw conflict('This attempt has ended');
+      // Warnings about the exam rules always go through; a voice only exam takes no chat.
+      if (body.kind === 'message' && (await communicationPolicy(tx, id)) === 'voice') {
+        throw conflict('This exam allows voice contact only');
+      }
       const { rows } = await tx.query<{ id: string; created_at: Date }>(
         `INSERT INTO attempt_messages (organisation_id, attempt_id, sender_user_id, kind, body)
          VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`,

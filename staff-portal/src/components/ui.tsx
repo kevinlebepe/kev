@@ -40,6 +40,7 @@ const TONES: Record<string, string> = {
   published: 'ok',
   released: 'ok',
   marked: 'ok',
+  moderated: 'ok',
   monitoring: 'ok',
   precheck_complete: 'ok',
   submitted: 'info',

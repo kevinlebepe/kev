@@ -6,7 +6,7 @@ import { conflict, forbidden, notFound } from '../errors.js';
 import { authorize, requireAuth, requireCandidate, requireOrg } from '../auth/context.js';
 import { audit, auditFrom } from '../audit.js';
 import { idParams, parse } from '../validation.js';
-import { scopedAttempt, viewer } from './live.js';
+import { communicationPolicy, scopedAttempt, viewer } from './live.js';
 
 // Live video and voice (MVP 6 and 7). The invigilator starts a call; the
 // candidate app learns of it at its next check in and joins. The API passes
@@ -49,6 +49,8 @@ export async function callRoutes(app: FastifyInstance, deps: AppDeps) {
       const v = await viewer(tx, auth);
       const a = await scopedAttempt(tx, auth, v, id, true);
       if (a.status !== 'active') throw conflict('This attempt has ended');
+      // Watching is monitoring and always allowed; talking follows the exam's policy.
+      if (voice && (await communicationPolicy(tx, id)) === 'text') throw conflict('This exam allows text contact only');
       // One call at a time: a new one replaces the old.
       await tx.query(`UPDATE live_calls SET status = 'ended', ended_at = now() WHERE attempt_id = $1 AND status = 'open'`, [id]);
       const { rows } = await tx.query<{ id: string }>(

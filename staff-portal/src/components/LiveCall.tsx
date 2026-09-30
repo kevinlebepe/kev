@@ -3,7 +3,7 @@ import { type CallState, StaffCall } from '../lib/liveCall';
 import { can, useMe } from '../lib/session';
 
 /** Watch a candidate's camera live, and talk to them with the voice permission. */
-export function LiveCallControls({ attemptId }: { attemptId: string }) {
+export function LiveCallControls({ attemptId, allowVoice = true }: { attemptId: string; allowVoice?: boolean }) {
   const me = useMe();
   const [state, setState] = useState<{ state: CallState; voice: boolean; detail?: string } | null>(null);
   const callRef = useRef<StaffCall | null>(null);
@@ -53,7 +53,7 @@ export function LiveCallControls({ attemptId }: { attemptId: string }) {
       )}
       <div className="row">
         {!active && <button onClick={() => start(false)}>Watch live</button>}
-        {!active && can(me, 'live:voice') && <button onClick={() => start(true)}>Talk to the candidate</button>}
+        {!active && allowVoice && can(me, 'live:voice') && <button onClick={() => start(true)}>Talk to the candidate</button>}
         {active && (
           <button
             className="danger"

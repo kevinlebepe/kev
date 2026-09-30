@@ -18,7 +18,7 @@ export interface StoredAnswer {
 export type PartialCredit = 'none' | 'proportional';
 
 /** A free text or file answer that a marker needs to look at. */
-const hasContent = (a: StoredAnswer | undefined) => Boolean(a?.text?.trim() || a?.fileId);
+const hasContent = (a: StoredAnswer | undefined) => Boolean(a?.text?.trim() || a?.fileId || a?.optionId || a?.optionIds?.length);
 
 export const AUTO_MARKED = new Set(['mcq', 'true_false', 'multiple_response']);
 
@@ -65,6 +65,8 @@ export function markAttempt(
   answers: ReadonlyMap<string, StoredAnswer>,
   manual: ReadonlyMap<string, number> = new Map(),
   partialCredit: PartialCredit = 'none',
+  /** When the exam turns automatic marking off, a marker scores every question, choice questions included. */
+  autoMarkOn = true,
 ): MarkResult {
   let score = 0;
   let maxScore = 0;
@@ -75,7 +77,7 @@ export function markAttempt(
     const entry = key[q.id];
     if (!entry) continue;
     maxScore += entry.points;
-    const auto = AUTO_MARKED.has(q.type);
+    const auto = autoMarkOn && AUTO_MARKED.has(q.type);
     let awarded: number | null;
     if (auto) awarded = autoMark(q.type, entry, answers.get(q.id), partialCredit);
     else if (manual.has(q.id)) awarded = Math.min(manual.get(q.id)!, entry.points);

@@ -179,6 +179,8 @@ interface AttemptDetail {
   total: number;
   timeline: { type: string; severity: string; occurredAt: string; data: Record<string, unknown> }[];
   messages: { id: string; kind: string; body: string; createdAt: string; deliveredAt: string | null; sender: string | null }[];
+  /** How the exam lets invigilators contact the candidate. */
+  communication: 'voice_and_text' | 'text' | 'voice';
 }
 
 function AttemptPanel({ attemptId, offset, now, onClose, onChanged }: { attemptId: string; offset: number; now: number; onClose: () => void; onChanged: () => void }) {
@@ -189,6 +191,10 @@ function AttemptPanel({ attemptId, offset, now, onClose, onChanged }: { attemptI
   const [note, setNote] = useState('');
   const d = detail.data;
   const active = d?.status === 'active';
+  // A voice only exam takes rule warnings in writing, but no chat.
+  useEffect(() => {
+    if (d?.communication === 'voice') setKind('warning');
+  }, [d?.communication]);
   const refresh = async () => {
     await detail.reload();
     onChanged();
@@ -244,7 +250,8 @@ function AttemptPanel({ attemptId, offset, now, onClose, onChanged }: { attemptI
           {active && (
             <>
               <h3>Live</h3>
-              <LiveCallControls attemptId={attemptId} />
+              <LiveCallControls attemptId={attemptId} allowVoice={d.communication !== 'text'} />
+              {d.communication === 'text' && <p className="muted small">This exam allows text contact only.</p>}
               <h3>Send to the candidate</h3>
               <form
                 className="stack"
@@ -253,9 +260,11 @@ function AttemptPanel({ attemptId, offset, now, onClose, onChanged }: { attemptI
                 }}
               >
                 <div className="row">
-                  <label className="check">
-                    <input type="radio" name="kind" checked={kind === 'message'} onChange={() => setKind('message')} /> Message
-                  </label>
+                  {d.communication !== 'voice' && (
+                    <label className="check">
+                      <input type="radio" name="kind" checked={kind === 'message'} onChange={() => setKind('message')} /> Message
+                    </label>
+                  )}
                   <label className="check">
                     <input type="radio" name="kind" checked={kind === 'warning'} onChange={() => setKind('warning')} /> Warning
                   </label>

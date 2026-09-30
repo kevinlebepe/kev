@@ -10,7 +10,7 @@ export interface Q {
 }
 
 /** Five questions of different types, worth 2 + 3 + 1 + 1 + 4 = 11 marks. */
-export async function buildExam(h: Harness, org: TestOrg, security?: object, device?: object) {
+export async function buildExam(h: Harness, org: TestOrg, security?: object, device?: object, extra: object = {}) {
   const make = async (body: object) => (await call(h, 'POST', '/questions', org.owner, body)).body.id as string;
   const ids = [
     await make({ type: 'mcq', prompt: 'What is 2 + 2?', options: [{ label: '3' }, { label: '4', isCorrect: true }, { label: '5' }] }),
@@ -27,7 +27,7 @@ export async function buildExam(h: Harness, org: TestOrg, security?: object, dev
   const exam = await call(h, 'POST', '/exams', org.owner, {
     code: uniq('EX'),
     name: 'Attempts exam',
-    config: { timing: { durationMinutes: 60 }, ...(security ? { security } : {}), ...(device ? { device } : {}) },
+    config: { timing: { durationMinutes: 60 }, ...(security ? { security } : {}), ...(device ? { device } : {}), ...extra },
   });
   await call(h, 'PUT', `/exams/${exam.body.id}/questions`, org.owner, {
     items: ids.map((questionId, i) => ({ questionId, points: points[i] })),

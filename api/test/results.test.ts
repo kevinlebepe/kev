@@ -51,7 +51,7 @@ describe('marking and results', () => {
     expect((await call(h, 'GET', '/me/results', a.token)).body.items).toEqual([]);
 
     const first = await call(h, 'POST', `/sessions/${a.sessionId}/results/release`, org.owner);
-    expect(first.body).toEqual({ released: 0, stillPending: 1 });
+    expect(first.body).toEqual({ released: 0, stillPending: 1, awaitingModeration: 0 });
 
     await call(h, 'PUT', `/marking/attempts/${a.attemptId}`, org.owner, {
       marks: [
@@ -60,7 +60,7 @@ describe('marking and results', () => {
       ],
     });
     const second = await call(h, 'POST', `/sessions/${a.sessionId}/results/release`, org.owner);
-    expect(second.body).toEqual({ released: 1, stillPending: 0 });
+    expect(second.body).toEqual({ released: 1, stillPending: 0, awaitingModeration: 0 });
 
     const mine = await call(h, 'GET', '/me/results', a.token);
     expect(mine.body.items).toHaveLength(1);

@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppDeps } from '../context.js';
@@ -172,6 +173,16 @@ async function applyAnswers(tx: Tx, attempt: AttemptRow, answers: z.infer<typeof
   return rows.map((r) => ({ questionId: r.question_id, seq: Number(r.client_seq) }));
 }
 
+/** A uniformly random order (Fisher and Yates, with a cryptographic source). */
+export function shuffled<T>(items: readonly T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
+}
+
 async function attemptView(q: Queryable, attemptId: string) {
   const { rows } = await q.query<{
     id: string;
@@ -181,8 +192,9 @@ async function attemptView(q: Queryable, attemptId: string) {
     started_at: Date;
     deadline_at: Date;
     now: Date;
+    question_order: string[] | null;
   }>(
-    `SELECT id, assignment_id, status, state, started_at, deadline_at, now() FROM attempts WHERE id = $1`,
+    `SELECT id, assignment_id, status, state, started_at, deadline_at, now(), question_order FROM attempts WHERE id = $1`,
     [attemptId],
   );
   const a = rows[0]!;
@@ -198,6 +210,8 @@ async function attemptView(q: Queryable, attemptId: string) {
     deadlineAt: a.deadline_at.toISOString(),
     serverTime: a.now.toISOString(),
     position: a.state.position ?? 0,
+    // When the exam shuffles its questions, the order this candidate sees them in.
+    questionOrder: a.question_order,
     answers: answers.map((r) => ({ questionId: r.question_id, response: r.response, seq: Number(r.client_seq) })),
     receipt: a.status === 'active' ? null : await existingReceipt(q, attemptId),
   };
@@ -254,9 +268,11 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
         attempt_id: string | null;
         platform: string | null;
         extra_minutes: number;
+        question_ids: string[] | null;
       }>(
         `SELECT a.status, a.extra_minutes, c.status AS candidate_status, s.status AS session_status, s.starts_at, s.ends_at,
                 s.exam_version_id, v.manifest->'config' AS config,
+                (SELECT array_agg(q->>'id') FROM jsonb_array_elements(v.manifest->'questions') q) AS question_ids,
                 (SELECT id FROM attempts WHERE assignment_id = a.id) AS attempt_id,
                 now() < s.starts_at AS before_start,
                 now() > s.ends_at AS after_end,
@@ -300,11 +316,14 @@ export async function attemptRoutes(app: FastifyInstance, deps: AppDeps) {
       const duration = parsed.timing.durationMinutes;
       if (!duration) throw conflict('This exam has no duration configured');
 
+      // The order is chosen here on the server, once, so a reload or a second
+      // device shows the same order and the signed package stays unchanged.
+      const questionOrder = parsed.navigation.randomiseQuestionOrder ? shuffled(row.question_ids ?? []) : null;
       const { rows: created } = await tx.query<{ id: string }>(
-        `INSERT INTO attempts (organisation_id, assignment_id, exam_version_id, deadline_at)
-         VALUES ($1, $2, $3, LEAST(now() + make_interval(mins => $4), $5::timestamptz + make_interval(mins => $6))) RETURNING id`,
+        `INSERT INTO attempts (organisation_id, assignment_id, exam_version_id, deadline_at, question_order)
+         VALUES ($1, $2, $3, LEAST(now() + make_interval(mins => $4), $5::timestamptz + make_interval(mins => $6)), $7) RETURNING id`,
         // Standing extra time (an accommodation) also lets the attempt run past the session's end by as much.
-        [auth.organisationId, assignmentId, row.exam_version_id, duration + row.extra_minutes, row.ends_at, row.extra_minutes],
+        [auth.organisationId, assignmentId, row.exam_version_id, duration + row.extra_minutes, row.ends_at, row.extra_minutes, questionOrder],
       );
       const attemptId = created[0]!.id;
       await tx.query(`UPDATE exam_assignments SET status = 'active' WHERE id = $1`, [assignmentId]);

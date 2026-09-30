@@ -116,3 +116,107 @@ export async function runFailover(db: Db): Promise<number> {
   for (const r of rows) moved += (await failoverSession(db, r.session_id)).moved.length;
   return moved;
 }
+
+/**
+ * Rotation (spec sections 6 and 7): when an exam sets a rotation interval,
+ * candidates move between the session's present invigilators every so many
+ * minutes, so no one watches the same people all day. Each candidate goes to
+ * a different invigilator where someone has room; the limit of 10 still holds.
+ */
+export async function rotateSession(db: Db, sessionId: string): Promise<number> {
+  return withTransaction(db, async (tx) => {
+    const { rows: session } = await tx.query<{ organisation_id: string; cap: number | null; due: boolean }>(
+      `SELECT s.organisation_id, (v.manifest #>> '{config,invigilation,maxCandidatesPerInvigilator}')::int AS cap,
+              coalesce(s.last_rotated_at, s.starts_at)
+                + make_interval(mins => (v.manifest #>> '{config,invigilation,rotationMinutes}')::int) <= now() AS due
+         FROM sessions s JOIN exam_versions v ON v.id = s.exam_version_id
+        WHERE s.id = $1 AND s.status = 'open' AND coalesce((v.manifest #>> '{config,invigilation,rotationMinutes}')::int, 0) > 0
+        FOR UPDATE OF s SKIP LOCKED`,
+      [sessionId],
+    );
+    if (!session[0]?.due) return 0;
+    const { organisation_id: organisationId, cap } = session[0];
+    await tx.query(
+      `SELECT i.id FROM invigilators i JOIN session_invigilators si ON si.invigilator_id = i.id AND si.session_id = $1
+        ORDER BY i.id FOR UPDATE OF i`,
+      [sessionId],
+    );
+    await tx.query('UPDATE sessions SET last_rotated_at = now() WHERE id = $1', [sessionId]);
+
+    // Only candidates still sitting, watched by someone present. Failover handles the rest.
+    const { rows: current } = await tx.query<{ id: string; candidate_id: string; invigilator_id: string }>(
+      `SELECT ia.id, ia.candidate_id, ia.invigilator_id
+         FROM invigilation_assignments ia
+         JOIN invigilators i ON i.id = ia.invigilator_id
+         JOIN exam_assignments a ON a.session_id = ia.session_id AND a.candidate_id = ia.candidate_id
+        WHERE ia.session_id = $1 AND ia.active AND a.status IN ('assigned', 'precheck_complete', 'active') AND ${PRESENT}
+        ORDER BY ia.candidate_id`,
+      [sessionId],
+    );
+    const { rows: present } = await tx.query<{ id: string; capacity: number; load: number }>(
+      `SELECT i.id, i.max_active AS capacity,
+              (SELECT count(*)::int FROM invigilation_assignments ia WHERE ia.invigilator_id = i.id AND ia.active) AS load
+         FROM invigilators i JOIN session_invigilators si ON si.invigilator_id = i.id AND si.session_id = $1
+        WHERE ${PRESENT}
+        ORDER BY i.id`,
+      [sessionId],
+    );
+    if (current.length === 0 || present.length < 2) return 0;
+    // The candidates being placed again stop counting against their current invigilator.
+    const loads = present.map((p) => ({ ...p, load: p.load - current.filter((c) => c.invigilator_id === p.id).length }));
+    const plan = allocate(
+      current.map((c) => c.candidate_id),
+      loads,
+      {
+        sessionCap: cap ?? PLATFORM_MAX_CANDIDATES_PER_INVIGILATOR,
+        random: Math.random,
+        avoid: new Map(current.map((c) => [c.candidate_id, c.invigilator_id])),
+      },
+    );
+    const byCandidate = new Map(current.map((c) => [c.candidate_id, c]));
+    const moves = plan.assignments.filter((a) => byCandidate.get(a.candidateId)!.invigilator_id !== a.invigilatorId);
+    // Release first, then assign, so the capacity trigger never sees a candidate counted twice.
+    for (const a of moves) {
+      await tx.query(`UPDATE invigilation_assignments SET active = false, released_at = now() WHERE id = $1`, [byCandidate.get(a.candidateId)!.id]);
+    }
+    for (const a of moves) {
+      const old = byCandidate.get(a.candidateId)!;
+      await tx.query(
+        `INSERT INTO invigilation_assignments (organisation_id, session_id, invigilator_id, candidate_id) VALUES ($1, $2, $3, $4)`,
+        [organisationId, sessionId, a.invigilatorId, a.candidateId],
+      );
+      await tx.query(
+        `INSERT INTO events (organisation_id, attempt_id, invigilator_id, type, severity, occurred_at, data)
+         SELECT $1, at.id, $4, 'invigilator_changed', 'info', date_trunc('milliseconds', now()), jsonb_build_object('from', $3::text, 'reason', 'rotation')
+           FROM attempts at JOIN exam_assignments ea ON ea.id = at.assignment_id
+          WHERE ea.session_id = $2 AND ea.candidate_id = $5`,
+        [organisationId, sessionId, old.invigilator_id, a.invigilatorId, a.candidateId],
+      );
+    }
+    if (moves.length) {
+      await audit(tx, {
+        organisationId,
+        actorUserId: null,
+        action: 'invigilation.rotate',
+        targetType: 'session',
+        targetId: sessionId,
+        data: { moved: moves.length },
+      });
+    }
+    return moves.length;
+  });
+}
+
+/** Rotates every open session whose exam asks for it and whose interval has passed. */
+export async function runRotation(db: Db): Promise<number> {
+  const { rows } = await db.query<{ id: string }>(
+    `SELECT s.id FROM sessions s JOIN exam_versions v ON v.id = s.exam_version_id
+      WHERE s.status = 'open' AND coalesce((v.manifest #>> '{config,invigilation,rotationMinutes}')::int, 0) > 0
+        AND coalesce(s.last_rotated_at, s.starts_at)
+              + make_interval(mins => (v.manifest #>> '{config,invigilation,rotationMinutes}')::int) <= now()
+      LIMIT 100`,
+  );
+  let moved = 0;
+  for (const r of rows) moved += await rotateSession(db, r.id);
+  return moved;
+}

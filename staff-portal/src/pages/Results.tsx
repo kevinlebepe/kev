@@ -22,7 +22,7 @@ interface ResultRow {
 }
 
 interface ResultsData {
-  summary: { submitted: number; pending: number; marked: number; released: number };
+  summary: { submitted: number; pending: number; marked: number; moderated: number; released: number };
   items: ResultRow[];
 }
 
@@ -42,11 +42,15 @@ export function Results({ sessionId }: { sessionId: string }) {
           {can(me, 'result:release') && (
             <ActionButton
               className="primary"
-              disabled={!s?.marked}
+              disabled={!s?.marked && !s?.moderated}
               confirm="Release every fully marked result? Candidates see their score straight away and it can no longer be changed."
               onClick={async () => {
-                const r = await request<{ released: number; stillPending: number }>('POST', `/sessions/${sessionId}/results/release`);
-                setNotice(`${r.released} result${r.released === 1 ? '' : 's'} released.${r.stillPending ? ` ${r.stillPending} still need marking and were held back.` : ''}`);
+                const r = await request<{ released: number; stillPending: number; awaitingModeration: number }>('POST', `/sessions/${sessionId}/results/release`);
+                setNotice(
+                  `${r.released} result${r.released === 1 ? '' : 's'} released.` +
+                    (r.stillPending ? ` ${r.stillPending} still need marking and were held back.` : '') +
+                    (r.awaitingModeration ? ` ${r.awaitingModeration} still need moderation and were held back.` : ''),
+                );
                 await results.reload();
               }}
             >
@@ -68,6 +72,7 @@ export function Results({ sessionId }: { sessionId: string }) {
             <Stat label="submitted" value={s.submitted} />
             <Stat label="waiting for a marker" value={s.pending} tone={s.pending ? 'warn' : ''} />
             <Stat label="marked, not released" value={s.marked} />
+            {s.moderated > 0 && <Stat label="moderated, not released" value={s.moderated} />}
             <Stat label="released" value={s.released} tone="ok" />
           </div>
         )}
@@ -135,7 +140,30 @@ interface MarkingData {
   score: number;
   maxScore: number;
   needsManual: number;
+  moderation: { required: boolean; moderatedAt: string | null; moderatedBy: string | null };
   questions: MarkingQuestion[];
+}
+
+function answered(q: MarkingQuestion): boolean {
+  return Boolean(q.answer?.text?.trim() || q.answer?.fileId || q.answer?.optionId || q.answer?.optionIds?.length);
+}
+
+/** The choices of a question, with the candidate's marked and the correct ones labelled. */
+function Options({ q }: { q: MarkingQuestion }) {
+  return (
+    <ul className="options">
+      {q.options.map((o) => {
+        const chosen = q.answer?.optionId === o.id || q.answer?.optionIds?.includes(o.id);
+        return (
+          <li key={o.id} className={o.correct ? 'correct' : chosen ? 'wrong' : ''}>
+            {chosen ? '● ' : '○ '}
+            {o.label}
+            {o.correct && <span className="muted small"> (correct)</span>}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 export function Marking({ attemptId }: { attemptId: string }) {
@@ -155,7 +183,7 @@ export function Marking({ attemptId }: { attemptId: string }) {
     );
   }, [d]);
 
-  const answeredManual = d?.questions.filter((q) => !q.auto && (q.answer?.text?.trim() || q.answer?.fileId)) ?? [];
+  const answeredManual = d?.questions.filter((q) => !q.auto && answered(q)) ?? [];
 
   return (
     <Page title={d ? `Marking: ${d.candidate.fullName}` : 'Marking'} back={d ? { href: href('sessions', d.sessionId, 'results'), text: 'Results' } : undefined}>
@@ -168,6 +196,33 @@ export function Marking({ attemptId }: { attemptId: string }) {
               {d.needsManual > 0 && `, ${d.needsManual} answer${d.needsManual > 1 ? 's' : ''} to mark`}
             </p>
             {locked && <p className="banner warn">This result has been released and can no longer be changed.</p>}
+            {d.moderation.required && !locked && (
+              <div className="card">
+                <h3>Moderation</h3>
+                {d.status === 'moderated' ? (
+                  <p>
+                    Marks confirmed by {d.moderation.moderatedBy ?? 'a moderator'}
+                    {d.moderation.moderatedAt && ` on ${new Date(d.moderation.moderatedAt).toLocaleString()}`}. Changing a mark sends the script back for moderation.
+                  </p>
+                ) : d.status === 'marked' ? (
+                  <>
+                    <p className="muted">This exam needs a second person to confirm the marks before the result can be released. It cannot be someone who marked this script.</p>
+                    {can(me, 'result:release') && (
+                      <ActionButton
+                        onClick={async () => {
+                          await request('POST', `/marking/attempts/${attemptId}/moderate`);
+                          await data.reload();
+                        }}
+                      >
+                        Confirm the marks
+                      </ActionButton>
+                    )}
+                  </>
+                ) : (
+                  <p className="muted">Moderation opens once every answer is marked.</p>
+                )}
+              </div>
+            )}
             <ol className="marking">
               {d.questions.map((q, i) => (
                 <li key={q.id} className="card">
@@ -175,20 +230,9 @@ export function Marking({ attemptId }: { attemptId: string }) {
                     Question {i + 1} · {label(q.type)} · {q.maxPoints} {q.maxPoints === 1 ? 'mark' : 'marks'}
                   </p>
                   <h3>{q.prompt}</h3>
+                  {q.options.length > 0 && <Options q={q} />}
                   {q.auto ? (
                     <>
-                      <ul className="options">
-                        {q.options.map((o) => {
-                          const chosen = q.answer?.optionId === o.id || q.answer?.optionIds?.includes(o.id);
-                          return (
-                            <li key={o.id} className={o.correct ? 'correct' : chosen ? 'wrong' : ''}>
-                              {chosen ? '● ' : '○ '}
-                              {o.label}
-                              {o.correct && <span className="muted small"> (correct)</span>}
-                            </li>
-                          );
-                        })}
-                      </ul>
                       <p>
                         <strong>
                           {q.awarded} / {q.maxPoints}
@@ -198,7 +242,9 @@ export function Marking({ attemptId }: { attemptId: string }) {
                     </>
                   ) : (
                     <>
-                      {q.answer?.fileId ? (
+                      {q.options.length > 0 ? (
+                        !q.answer?.optionId && !q.answer?.optionIds?.length && <p className="muted">Not answered. Scores 0.</p>
+                      ) : q.answer?.fileId ? (
                         <p className="answer">
                           <ActionButton onClick={() => download(`/marking/attempts/${attemptId}/files/${q.answer!.fileId}`, q.answer!.name ?? 'answer')}>
                             Download {q.answer.name ?? 'the file'}
@@ -207,7 +253,7 @@ export function Marking({ attemptId }: { attemptId: string }) {
                       ) : (
                         <blockquote className="answer">{q.answer?.text?.trim() ? q.answer.text : <span className="muted">Not answered. Scores 0.</span>}</blockquote>
                       )}
-                      {(q.answer?.text?.trim() || q.answer?.fileId) && marks[q.id] && (
+                      {answered(q) && marks[q.id] && (
                         <div className="row">
                           <label className="field narrow">
                             <span>Marks out of {q.maxPoints}</span>

@@ -27,11 +27,12 @@ interface ExamDetailData {
 }
 
 type Policy = 'flag' | 'warn_then_submit' | 'submit_immediately';
+type Communication = 'voice_and_text' | 'text' | 'voice';
 const OS = ['windows', 'macos', 'linux', 'chromeos', 'android', 'ios'] as const;
 
 /** The parts of the exam configuration the portal edits. Anything else is kept as stored. */
 export interface Config {
-  timing: { durationMinutes?: number; startWindowMinutes: number; lateEntryMinutes: number; autoSubmit: boolean };
+  timing: { durationMinutes?: number; startWindowMinutes: number; lateEntryMinutes: number };
   security: {
     kiosk: boolean;
     screenCapture: boolean;
@@ -44,6 +45,9 @@ export interface Config {
     maxViolations: number;
   };
   navigation: { allowBacktrack: boolean; randomiseQuestionOrder: boolean };
+  results: { autoMark: boolean; partialCredit: 'none' | 'proportional'; releaseAt?: string; moderation: boolean };
+  invigilation: { required: boolean; maxCandidatesPerInvigilator: number; rotationMinutes: number; communication: Communication };
+  offline: { allowed: boolean; maxOfflineMinutes: number };
   device: {
     supportedOs: string[];
     minFreeStorageMb: number;
@@ -59,7 +63,7 @@ export function withDefaults(raw: Partial<Config> | null | undefined): Config {
   const c = (raw ?? {}) as Partial<Config>;
   return {
     ...c,
-    timing: { startWindowMinutes: 15, lateEntryMinutes: 0, autoSubmit: true, ...c.timing },
+    timing: { startWindowMinutes: 15, lateEntryMinutes: 0, ...c.timing },
     security: {
       kiosk: true,
       screenCapture: false,
@@ -73,6 +77,9 @@ export function withDefaults(raw: Partial<Config> | null | undefined): Config {
       ...c.security,
     },
     navigation: { allowBacktrack: true, randomiseQuestionOrder: false, ...c.navigation },
+    results: { autoMark: true, partialCredit: 'none', moderation: false, ...c.results },
+    invigilation: { required: false, maxCandidatesPerInvigilator: 10, rotationMinutes: 0, communication: 'voice_and_text', ...c.invigilation },
+    offline: { allowed: true, maxOfflineMinutes: 30, ...c.offline },
     device: {
       supportedOs: ['windows', 'macos'],
       minFreeStorageMb: 2048,
@@ -240,6 +247,13 @@ const POLICY_TEXT: Record<Policy, string> = {
   submit_immediately: 'End the exam at the first break',
 };
 
+/** An ISO date as the value of a datetime-local input, in the browser's time zone. */
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function Settings({ exam, onSaved }: { exam: ExamDetailData; onSaved: () => void }) {
   const [c, setC] = useState(() => withDefaults(exam.config));
   const [saved, setSaved] = useState(false);
@@ -247,6 +261,9 @@ function Settings({ exam, onSaved }: { exam: ExamDetailData; onSaved: () => void
   const sec = (patch: Partial<Config['security']>) => setC({ ...c, security: { ...c.security, ...patch } });
   const dev = (patch: Partial<Config['device']>) => setC({ ...c, device: { ...c.device, ...patch } });
   const tim = (patch: Partial<Config['timing']>) => setC({ ...c, timing: { ...c.timing, ...patch } });
+  const res = (patch: Partial<Config['results']>) => setC({ ...c, results: { ...c.results, ...patch } });
+  const inv = (patch: Partial<Config['invigilation']>) => setC({ ...c, invigilation: { ...c.invigilation, ...patch } });
+  const off = (patch: Partial<Config['offline']>) => setC({ ...c, offline: { ...c.offline, ...patch } });
 
   return (
     <Form
@@ -274,6 +291,13 @@ function Settings({ exam, onSaved }: { exam: ExamDetailData; onSaved: () => void
         </Field>
       </div>
       <Check label="Candidates may go back to earlier questions" checked={c.navigation.allowBacktrack} onChange={(v) => setC({ ...c, navigation: { ...c.navigation, allowBacktrack: v } })} />
+      <Check
+        label="Show the questions in a different order to each candidate"
+        checked={c.navigation.randomiseQuestionOrder}
+        onChange={(v) => setC({ ...c, navigation: { ...c.navigation, randomiseQuestionOrder: v } })}
+        hint="The order is chosen when the candidate starts, and stays the same if they reload."
+      />
+      <p className="muted small">When the time is up, the exam closes and the answers saved so far are submitted.</p>
 
       <h3>Exam rules</h3>
       <Check label="Full screen required" checked={c.security.fullscreen} onChange={(v) => sec({ fullscreen: v })} hint="Leaving full screen counts as a break." />
@@ -299,16 +323,62 @@ function Settings({ exam, onSaved }: { exam: ExamDetailData; onSaved: () => void
         )}
       </div>
 
-      <h3>Marking</h3>
+      <h3>Marking and results</h3>
+      <Check
+        label="Mark choice questions automatically"
+        checked={c.results.autoMark}
+        onChange={(v) => res({ autoMark: v })}
+        hint="When off, a marker scores every question, with the correct answers shown as a guide."
+      />
       <Field label="Questions with several correct answers">
-        <select
-          value={(c.results as { partialCredit?: string } | undefined)?.partialCredit ?? 'none'}
-          onChange={(e) => setC({ ...c, results: { ...(c.results as object), partialCredit: e.target.value } })}
-        >
+        <select value={c.results.partialCredit} onChange={(e) => res({ partialCredit: e.target.value as Config['results']['partialCredit'] })}>
           <option value="none">All or nothing</option>
           <option value="proportional">Part marks: a share for each right choice, less each wrong one</option>
         </select>
       </Field>
+      <Check
+        label="Moderation: a second person confirms the marks before release"
+        checked={c.results.moderation}
+        onChange={(v) => res({ moderation: v })}
+        hint="The moderator needs permission to release results and cannot be someone who marked the script."
+      />
+      <Field label="Release results automatically on" hint="Leave empty to release by hand. Results marked after this date are released as they are finished.">
+        <input
+          type="datetime-local"
+          value={c.results.releaseAt ? toLocalInput(c.results.releaseAt) : ''}
+          onChange={(e) => res({ releaseAt: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
+        />
+      </Field>
+
+      <h3>Invigilation</h3>
+      <div className="grid3">
+        <Field label="Candidates per invigilator" hint="At most 10.">
+          <input type="number" min={1} max={10} value={c.invigilation.maxCandidatesPerInvigilator} onChange={(e) => inv({ maxCandidatesPerInvigilator: Number(e.target.value) })} />
+        </Field>
+        <Field label="Rotate invigilators every (minutes)" hint="0 keeps each candidate with the same invigilator.">
+          <input type="number" min={0} max={1440} value={c.invigilation.rotationMinutes} onChange={(e) => inv({ rotationMinutes: Number(e.target.value) })} />
+        </Field>
+        <Field label="How invigilators may contact candidates">
+          <select value={c.invigilation.communication} onChange={(e) => inv({ communication: e.target.value as Communication })}>
+            <option value="voice_and_text">Voice and text</option>
+            <option value="text">Text only</option>
+            <option value="voice">Voice only (rule warnings still sent as text)</option>
+          </select>
+        </Field>
+      </div>
+
+      <h3>Working offline</h3>
+      <Check
+        label="Allow working offline"
+        checked={c.offline.allowed}
+        onChange={(v) => off({ allowed: v })}
+        hint="Answers are always kept on the device and sent when the connection returns. When this is off, any time offline is flagged for review."
+      />
+      {c.offline.allowed && (
+        <Field label="Longest time offline before it is flagged, in minutes">
+          <input type="number" min={0} max={1440} value={c.offline.maxOfflineMinutes} onChange={(e) => off({ maxOfflineMinutes: Number(e.target.value) })} />
+        </Field>
+      )}
 
       <h3>Devices</h3>
       <Check

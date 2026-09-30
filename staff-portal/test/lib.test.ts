@@ -50,7 +50,9 @@ describe('server errors', () => {
 describe('exam settings', () => {
   it('keeps stored values and fills the rest with the server defaults', () => {
     const c = withDefaults({ timing: { durationMinutes: 45 } } as never);
-    expect(c.timing).toEqual({ durationMinutes: 45, startWindowMinutes: 15, lateEntryMinutes: 0, autoSubmit: true });
+    expect(c.timing).toEqual({ durationMinutes: 45, startWindowMinutes: 15, lateEntryMinutes: 0 });
+    expect(c.results).toMatchObject({ autoMark: true, moderation: false });
+    expect(c.invigilation.communication).toBe('voice_and_text');
     expect(c.security.violationPolicy).toBe('flag');
     expect(c.device.supportedOs).toEqual(['windows', 'macos']);
   });
