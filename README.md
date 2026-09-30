@@ -4,12 +4,12 @@ Secure online assessment, examination and live invigilation platform. The full p
 
 The repository holds four applications:
 
-* **`api/`**: the platform API. Organisations, staff roles, candidate onboarding and approval, exams and signed exam versions, sessions, invigilator allocation (never more than 10 candidates each) with automatic failover, the device check, exam attempts with a server owned timer, the exam rules, the live console with messages, extra time, live video and voice, recording upload with evidence checks, marking, results release, email delivery and webhooks.
-* **`staff-portal/`**: the website for staff. Administrators and exam managers run candidates, exams, sessions, invigilators, staff and integrations. Invigilators get the live console. Markers mark free text answers and release results. Each person sees only the sections their role allows.
-* **`candidate-app/`**: the website candidates use. They accept an invitation or register, run the device check, sit the exam with autosave, a countdown and the exam rules, are recorded when the exam asks for it, receive messages and calls from the invigilator, and see released results.
+* **`api/`**: the platform API. Organisations, staff roles, candidate onboarding and approval, single sign on, exams with question pools and signed exam versions, sessions, invigilator allocation (never more than 10 candidates each) with rotation and automatic failover, the device check, exam attempts with a server owned timer, the exam rules, the live console with messages, flags, extra time, live video and voice, recording upload with evidence checks, marking and moderation, results release, reports, notifications and reminders, system health, support cases, data export and erasure, email delivery and webhooks.
+* **`staff-portal/`**: the website for staff. Administrators and exam managers run candidates and groups, exams and pools, sessions with their exam day checklist, invigilators, staff, security, branding, single sign on and integrations. Invigilators get the live console. Markers mark and moderate, and release results. Everyone with reports sees system health, incidents and the reports. Each person sees only the sections their role allows.
+* **`candidate-app/`**: the website candidates use. They accept an invitation, register or sign in through their organisation, run the device check, agree to the organisation's notice, sit the exam with autosave, a countdown and the exam rules, are recorded when the exam asks for it, receive messages and calls from the invigilator, ask for help, download their data, and see released results. A public status page shows whether the service is working.
 * **`desktop-app/`**: the ExamGuard desktop application for Windows, macOS and Linux. It shows the candidate screens in a locked window: kiosk and full screen, always on top, screen capture blocked, closing and shortcuts intercepted, other screens, virtual machines and screen sharing programs detected. Exams can require it on laptops and desktops, while phones, tablets and Chromebooks use the browser.
 
-See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for how each part of the specification is covered, and for what is not done.
+See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for how each part of the specification is covered, and for what is not done, and [docs/OPERATIONS.md](docs/OPERATIONS.md) for running it in production and on exam day.
 
 | Staff portal: session | Live console | Live video | Marking with the recording |
 |---|---|---|---|
@@ -109,12 +109,13 @@ Once installed, the **Open in the ExamGuard app** button on the candidate websit
 |---|---|
 | API | Node.js 22, TypeScript, Fastify 5, Zod validation on every request |
 | Database | PostgreSQL 16, plain SQL migrations |
-| Auth | Short lived JWT access tokens, rotating opaque refresh tokens, scrypt password hashes |
+| Auth | Short lived JWT access tokens, rotating opaque refresh tokens, scrypt password hashes, TOTP two factor codes, OpenID Connect single sign on with PKCE |
 | Exam signing | Ed25519 over canonical JSON; receipts signed the same way |
 | Websites | React 19, TypeScript, Vite; WebCrypto for package verification and local encryption |
-| Recording | MediaRecorder in 30 second pieces, SHA-256 per piece; local disk storage behind a storage interface |
+| Recording | MediaRecorder in 30 second pieces, SHA-256 per piece; local disk or S3 compatible storage |
 | Live video and voice | WebRTC between the two browsers; the API only passes the connection messages |
 | Email | SMTP through nodemailer, from a transactional outbox |
+| Operations | Prometheus metrics, request ids, health monitor and public status page; optional Redis for shared rate limits |
 | Desktop application | Electron with a sandboxed window and a small, checked set of messages; electron-builder installers |
 | Tests | Vitest against a real PostgreSQL database; Playwright for end to end runs |
 
@@ -131,6 +132,9 @@ Once installed, the **Open in the ExamGuard app** button on the candidate websit
 | `PORTAL_BASE_URL` | Address of the staff portal, used in staff invitation and password reset links |
 | `ICE_SERVERS` | STUN and TURN servers for live video |
 | `TRUST_PROXY` | Load balancer addresses, so rate limits see real client addresses |
+| `REDIS_URL` | Shares sign in rate limits between several API servers |
+| `SSO_CALLBACK_URL` | The return address to register with identity providers for single sign on |
+| `METRICS_TOKEN` | Lets the monitoring system read `GET /metrics` |
 
 ## Production
 
@@ -161,10 +165,12 @@ Set `TEST_DATABASE_URL` if your database is not at `postgres://examguard:examgua
 
 ```
 api/
-  migrations/          SQL migrations 001 to 010
+  migrations/          SQL migrations 001 to 021
   src/
-    modules/           routes: auth, organisations, candidates, exams, sessions, invigilation, live,
-                       calls, candidateApp, attempts, recording, results, integrations
+    modules/           routes: auth, sso, organisations, candidates, people (groups, access codes,
+                       branding), exams, sessions, checklist, invigilation, live, calls, candidateApp,
+                       attempts, recording, results, reports, notifications, system, governance,
+                       integrations
     allocation.ts      invigilator allocation (spec section 7)
     failover.ts        moving candidates away from invigilators who have gone
     attempts.ts        closing an attempt: receipt, marking, evidence, expiry sweep
@@ -174,17 +180,24 @@ api/
     mail.ts            email templates and delivery
     webhooks.ts        signed webhooks and the private address check
     storage.ts         where recordings are kept
+    alerts.ts          reminders and alerts
+    health.ts          health checks, the monitor and job tracking
+    metrics.ts         Prometheus metrics
+    sso.ts             OpenID Connect client
+    scripts/           migrate, seed, demo and the load test
   test/
 staff-portal/src/
-  pages/               overview, candidates, exams, sessions, live console, marking and results,
-                       invigilators, staff, integrations, audit log
+  pages/               overview with system health, notifications, candidates, exams, sessions,
+                       live console, marking and results, reports, invigilators, support, staff,
+                       integrations, audit log
   components/, lib/    shared parts, API client, live call
 candidate-app/src/
-  screens/             sign in, onboarding, my exams, device check, rules, exam, receipt, results
+  screens/             sign in, onboarding, status, help, my exams, device check, rules, exam,
+                       receipt, results
   lib/                 API client, package verification, server clock, save queue, encrypted store,
                        exam rules, recording, live call, heartbeat
 desktop-app/
   src/                 lockdown, shortcuts, system report, navigation, launch links, exam address
   electron-builder.yml installer settings
-docs/                  specification, implementation notes and screenshots
+docs/                  specification, implementation notes, operations runbook and screenshots
 ```

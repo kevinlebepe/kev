@@ -1,6 +1,6 @@
 # Implementation Notes
 
-Status as at 29 September 2026: a first version of every roadmap phase (MVP 1 to MVP 8) is built, with the gaps listed at the end. This file maps the handoff specification (v2.0) to the code and says plainly what is not done.
+Status as at 30 September 2026: every roadmap phase (MVP 1 to MVP 8) is built, together with the specification's reports, notifications, incident view, governance, question pools and single sign on. The gaps that remain are listed at the end. Running it in production is covered in [OPERATIONS.md](OPERATIONS.md). This file maps the handoff specification (v2.0) to the code and says plainly what is not done.
 
 ## What is built
 
@@ -46,6 +46,23 @@ Two decisions differ slightly from the specification's wording:
 | Exam rules | `POST /attempts/:id/events` | signed in candidate |
 | Desktop application | request header `x-examguard-client`, device check fields `appKind` and `restrictedApps` | signed in candidate |
 | Attempt overview and timeline | `GET /sessions/:id/attempts`, `GET /attempts/:id/timeline` | `report:view` |
+| Reports | `GET /reports/incidents`, `/reports/blackouts`, `/reports/recording-health`, `/reports/invigilation`, `/reports/session-health`, `/reports/organisation` (JSON or CSV), `GET /attempts/:id/report` | `report:view` |
+| Invigilator flag | `POST /live/attempts/:id/flag` | `live:view`, in scope |
+| Moderation | `POST /marking/attempts/:id/moderate` | `result:release`, not a marker of the script |
+| Question pools | `PUT /exams/:id/pools` | `exam:create` |
+| Notifications | `GET /me/notifications`, `POST /me/notifications/read` | signed in staff |
+| Health and status | `GET /status` (public), `GET /system/health`, `GET /metrics` | public, `report:view`, metrics token |
+| Checklist | `GET /sessions/:id/checklist`, `PUT /sessions/:id/checklist/:item` | `session:manage` |
+| Holds | `POST/DELETE /attempts/:id/hold` | `result:release` |
+| Data export and erasure | `GET /candidates/:id/export`, `POST /candidates/:id/erase`, `GET /me/export` | `candidate:view`, `organisation:manage_security`, signed in candidate |
+| Support | `POST/GET /me/support`, `GET/PATCH /support-cases/:id`, `GET/PATCH /platform/support-cases` | signed in candidate, `support:manage`, platform operator |
+| Groups | `GET/POST /groups`, `DELETE /groups/:id`, `GET /groups/:id/members`, `POST /groups/:id/members/add` and `/remove` | `candidate:view`, `candidate:invite` |
+| Access codes | `POST/DELETE /assignments/:id/access-code`, `POST /auth/access-code` | `session:manage`, public and rate limited |
+| Branding | `PUT/DELETE /organisations/:id/logo`, `GET /public/organisations/:slug/branding` and `/logo` | `organisation:manage_security`, public |
+| Invigilator import | `POST /invigilators/import` | `invigilator:create` |
+| Single sign on | `GET/POST/PATCH/DELETE /organisations/:id/identity-providers`, `GET /auth/sso/start`, `GET /auth/sso/callback`, `POST /auth/sso/complete` | `organisation:manage_security`, public |
+
+Every route also answers under the `/v1` prefix, for long lived integrations (spec section 16).
 
 ### Specification requirements covered
 
@@ -113,6 +130,23 @@ Two decisions differ slightly from the specification's wording:
 | Webhooks to the organisation's systems, signed, retried, never to private addresses (s24, MVP 8) | `webhooks.ts`, `modules/integrations.ts` |
 | Desktop installers for Windows, macOS and Linux, with the exam address fixed at build time (s13) | `desktop-app/electron-builder.yml`, `.github/workflows/desktop-installers.yml`, `desktop-app/src/appConfig.ts` |
 | CI with typecheck, tests, builds and dependency audit (s21) | `.github/workflows/` |
+| Exam settings all take effect: random question order per candidate, automatic marking off, moderation by a second person, a release date, invigilator rotation, and the contact policy (s6, s7) | `modules/attempts.ts`, `results.ts`, `failover.ts`, `modules/live.ts`, `modules/calls.ts` |
+| Question bank pools, randomisation, categories and difficulty (s6) | `exam_pools`; each candidate's draw is chosen at the start and stored on the attempt |
+| Reports: candidate attempt, blackout, recording health, invigilation, session health, organisation, all as CSV too (s18) | `modules/reports.ts`, `staff-portal/src/pages/Reports.tsx` |
+| Flag an event and add a note from the live console (s8) | `POST /live/attempts/:id/flag` |
+| Notifications: approval and rejection, pre-exam reminder, readiness failure, exam start reminder, capacity alert, blackout alert, submission received, evidence incomplete, service incident (s20) | `alerts.ts`, `mail.ts`, in app notifications in the portal |
+| System health on the dashboard, incident mode sorted by where a problem lies, and a public status page (s3, s5, s17, s21) | `health.ts`, `modules/system.ts`, `candidate-app/src/screens/SystemStatus.tsx` |
+| Metrics for latency, errors, database connections, queue depth, uploads and WebRTC sessions; request ids in every log line (s21) | `metrics.ts`, `app.ts` |
+| Rate limits shared across instances through Redis (s13, s14) | `REDIS_URL` |
+| Exam event checklist (s21) | `modules/checklist.ts`, session page |
+| Load test for concurrent candidates and recording traffic (s21, s25) | `npm run loadtest:dev` |
+| Recording access audited; saving a copy needs its own permission (s2, s19) | `GET /recording-chunks/:id` |
+| Configurable retention with holds; data export and erasure (s19) | `retention.ts`, `modules/governance.ts` |
+| Candidate notice and recorded consent (s19) | organisation `candidate_notice`; agreement stored with the attempt's start |
+| Support cases, organisation and platform issues kept apart; a support agent with limited, audited access (s2, s23) | `modules/governance.ts`, portal Support, candidate Help |
+| Candidate groups, invigilator import, organisation branding (s5, s7) | `modules/people.ts` |
+| Exam access code as a controlled fallback for verified candidates (s3) | `accessCodes.ts`, `POST /auth/access-code` |
+| Single sign on with OpenID Connect, for staff and candidates (s3, s16) | `sso.ts`, `modules/sso.ts` |
 
 ## Known gaps
 
@@ -120,53 +154,62 @@ These are the things a reviewer should know are missing or limited. Each is a de
 
 **Security and identity**
 
-1. **SSO.** Not built. Sign in is by email and password, with optional two factor codes (required for staff when the organisation chooses). SAML or OpenID Connect sign in through a university's own identity system is not built.
+1. **Single sign on is OpenID Connect only.** Microsoft Entra ID, Google Workspace, Okta and most university systems offer it. SAML (for example Shibboleth on its own) is not built, and neither is directory sync (SCIM or group import); candidates and staff are still added in the portal or by CSV.
 2. **Two factor codes are for staff screens.** Candidates who turn it on (there is no candidate screen to do so yet) are asked for a code; the candidate app supports that step.
-3. **Distributed rate limiting.** Counts are kept in memory. Several API servers need a Redis store.
-4. **Database level tenant isolation.** Isolation is enforced in every query and tested. PostgreSQL row level security would add a second layer.
-5. **The code check has a small window.** Codes one step either side of now are accepted for clock drift, and a used step is never accepted again.
-6. **The application's claim is not proven.** Whether a request comes from the desktop application, and which platform it is on, is the application's own claim. Signed builds with platform attestation, or managed devices, are needed to prove it.
+3. **Database level tenant isolation.** Isolation is enforced in every query and tested. PostgreSQL row level security would add a second layer.
+4. **The application's claim is not proven.** Whether a request comes from the desktop application, and which platform it is on, is the application's own claim. Signed builds with platform attestation, or managed devices, are needed to prove it.
+5. **Access codes are shown once, in the browser.** There is no printable slip or bulk issue for a whole session.
 
 **Desktop application**
 
-7. **Installers are not signed.** macOS gets an ad hoc signature only, so it warns on first open and needs notarisation with an Apple Developer ID. Windows shows a SmartScreen warning until a code signing certificate is used. There are no automatic updates yet.
-8. **Tested on Linux only.** Kiosk mode, real key delivery, camera prompts and link handling were driven in a real Electron window under a virtual display, and the packaged Linux build was run. Windows and macOS behaviour needs trying on those computers.
-9. **What the application cannot stop.** Ctrl+Alt+Del and the Windows key on Windows, and the three finger gestures and Cmd+Tab on macOS, belong to the operating system; the application takes focus back and reports leaving. A second device, a photograph of the screen and hardware capture are not detectable. The strictest exams need managed devices or a person in the room.
-10. **Detection is best effort.** Virtual machine and screen sharing detection uses the computer's own hints and a list of program names.
-11. **Phones and tablets are not locked by ExamGuard.** They use the browser; the organisation must lock them with its own device management (for example Guided Access on iPad).
+6. **Installers are not signed.** macOS gets an ad hoc signature only, so it warns on first open and needs notarisation with an Apple Developer ID. Windows shows a SmartScreen warning until a code signing certificate is used. There are no automatic updates yet.
+7. **Tested on Linux only.** Kiosk mode, real key delivery, camera prompts and link handling were driven in a real Electron window under a virtual display, and the packaged Linux build was run. Windows and macOS behaviour needs trying on those computers.
+8. **What the application cannot stop.** Ctrl+Alt+Del and the Windows key on Windows, and the three finger gestures and Cmd+Tab on macOS, belong to the operating system; the application takes focus back and reports leaving. A second device, a photograph of the screen and hardware capture are not detectable. The strictest exams need managed devices or a person in the room.
+9. **Detection is best effort.** Virtual machine and screen sharing detection uses the computer's own hints and a list of program names.
+10. **Phones and tablets are not locked by ExamGuard.** They use the browser; the organisation must lock them with its own device management (for example Guided Access on iPad).
 
 **Recording and live video**
 
-12. **S3 storage is tested against a stand in, not a live service.** Setting `S3_BUCKET` sends recordings to Amazon S3 or any S3 compatible service (MinIO, R2, Wasabi); the request signing matches Amazon's published example. It has not been run against a real bucket. Encryption at rest is asked for with `S3_SERVER_SIDE_ENCRYPTION`.
-13. **Retention deletes by age only.** Recordings are deleted a set number of days after submission (365 unless the organisation changes it), and camera stills when the exam closes. Holding a recording longer for an appeal or investigation is not built.
-14. **Screen recording in the desktop application is a picture every 10 seconds**, taken of the locked exam window from inside the application. The protection against outside capture would blank a normal screen recording. In a browser the candidate shares the whole screen and it is recorded as video.
-15. **Live video needs TURN on strict networks.** The default is a public STUN server, which connects most home and office networks. Networks that block direct connections need a TURN server in `ICE_SERVERS`. Calls start within one check in (up to 10 seconds) and connection messages are polled once a second; a push channel would make this faster.
-16. **Live calls are not recorded.** The exam's own recording carries on during a call, but the invigilator's voice is not kept.
+11. **S3 storage is tested against a stand in, not a live service.** The request signing matches Amazon's published example, and a real bucket has not been tried.
+12. **Screen recording in the desktop application is a picture every 10 seconds**, taken of the locked exam window from inside the application. The protection against outside capture would blank a normal screen recording. In a browser the candidate shares the whole screen and it is recorded as video.
+13. **Live video needs TURN on strict networks.** Without a TURN server in `ICE_SERVERS`, the health panel and the checklist say so. Calls start within one check in (up to 10 seconds) and connection messages are polled once a second; a push channel would make this faster.
+14. **Live calls are not recorded.** The exam's own recording carries on during a call, but the invigilator's voice is not kept.
 
 **Offline**
 
-17. **The exam cannot start offline, by design.** The server owns the timer, so starting needs the server once. After that, a lost connection is survived for as long as the exam's offline limit allows. Starting offline would mean trusting the device's clock for the start time, which a candidate could change to gain time; it was left out for that reason. Caching an encrypted package with the key released at the start time could be added if an organisation needs it for places with no connection at all.
-18. **Time away is recorded, not enforced.** Going past the exam's offline limit is flagged high for review; it does not end the exam, because the timer keeps running anyway and a network fault is rarely the candidate's doing.
+15. **The exam cannot start offline, by design.** The server owns the timer, so starting needs the server once. Starting offline would mean trusting the device's clock for the start time, which a candidate could change to gain time.
+16. **Time away is recorded, not enforced.** Going past the exam's offline limit is flagged high and alerts the invigilator; it does not end the exam, because a network fault is rarely the candidate's doing.
 
 **Exams and results**
 
-19. **Marking.** Multiple response questions are all or nothing unless the exam turns on part marks (a share for each right choice, less each wrong one, never below zero). There is no second marker or moderation step.
-20. **File upload questions** take a PDF, PNG or JPEG picture, or Word document up to 10 MB, stored with the recordings and downloaded by the marker. Files are not scanned for viruses; markers should open them with care, and a scanning step is recommended before real use.
-21. **Retakes and accommodations.** A retake is a new assignment to another session; the first attempt and its result are kept. Standing extra time per candidate (up to 600 minutes) is set on the session page, applied when the exam starts, and moves the deadline of a running exam. Other accommodations, such as screen readers or a separate room, still need the organisation's own arrangements.
-22. **Webhooks.** The address is checked for private networks before each send, but DNS is resolved again by the request itself, so a determined DNS rebinding attack is not fully closed. A pinned resolver would close it. The row is held locked while the request runs (up to 10 seconds), which is fine at modest volume.
+17. **Moderation is a confirmation, not blind double marking.** A second person confirms the marks before release; there is no independent second mark with reconciliation, and no adaptive testing.
+18. **Files are not scanned for viruses.** File answers take a PDF, PNG, JPEG or Word document up to 10 MB; markers should open them with care, and a scanning step is recommended before real use.
+19. **Accommodations beyond extra time** (screen readers, a separate room) still need the organisation's own arrangements.
+20. **Webhooks and single sign on addresses** are checked for private networks before each call, but DNS is resolved again by the request itself, so a determined DNS rebinding attack is not fully closed. A pinned resolver would close it.
+
+**Product and operations**
+
+21. **Billing is not built.** The specification lists billing settings for the organisation owner; it needs a decision on the payment provider and pricing first.
+22. **No SMS or push notifications.** The specification makes these optional; email and in app notifications are built. In app notifications are for staff; candidates get email and see replies in the app.
+23. **Reports are worked out live from PostgreSQL.** That suits tens of thousands of attempts; beyond that the specification's advice applies: add a warehouse when scale requires it.
+24. **Tracing is by request id.** Every log line carries the request id; full distributed tracing needs the OpenTelemetry agent (see OPERATIONS.md).
+25. **The load test has run on a development machine only.** Run it on staging sized like production before a major exam.
+26. **Integrations are webhooks and CSV.** Direct LMS, student information system and applicant tracking integrations, regional deployment and data residency choices are future extensions in the specification.
 
 ## How the pieces fit
 
 ```
 Candidate website or desktop app ──> API ──> PostgreSQL
-        │   heartbeat every 10 s          ├── recordings on disk (or S3)
+        │   heartbeat every 10 s          ├── recordings, files and logos on disk (or S3)
         │   recording pieces              ├── email outbox ──> SMTP
-        │                                 └── webhook outbox ──> organisation's systems
+        │                                 ├── webhook outbox ──> organisation's systems
+        │                                 ├── Redis (shared rate limits, optional)
+        │                                 └── identity providers (single sign on)
         └──── WebRTC audio and video ────> Staff portal (invigilator)
                 (API passes the connection messages only)
 ```
 
-Background jobs run on every API server, each safe to run on several at once: closing overdue attempts (30 s), invigilator failover (30 s), email (10 s) and webhooks (10 s).
+Background jobs run on every API server, each safe to run on several at once: closing overdue attempts (30 s); invigilator failover, rotation and scheduled results release (30 s); reminders and evidence alerts (60 s); the health monitor (60 s); email (10 s); webhooks (10 s); and retention (hourly). Each records when it last ran, so a stalled one shows on the health panel and in the metrics.
 
 ## Desktop application and device routing
 
