@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NextQ poster designs</title>
+<link rel="stylesheet" href="fonts.css">
+<style>
+  :root { --ink: #1e2150; --cream: #fff4dc; --yellow: #ffd25e; --coral: #ff7a59; --mint: #cfeadb; --purple: #6670b5; --deep: #3f4f99; --green: #12a88a; --grey: #5b5f86; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #ddd; display: flex; flex-wrap: wrap; gap: 40px; padding: 40px; }
+  .p { width: 1080px; height: 1350px; position: relative; overflow: hidden; font-family: 'Plus Jakarta Sans', sans-serif; color: var(--ink); background: var(--cream); flex: none; }
+  .h { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; letter-spacing: -0.02em; line-height: 0.94; margin: 0; }
+  .s { font-family: 'Fraunces', serif; font-weight: 600; letter-spacing: -0.02em; line-height: 1.02; margin: 0; }
+  .sub { font-size: 30px; line-height: 1.4; font-weight: 600; margin: 0; }
+  .m { position: absolute; display: block; }
+  .flip { transform: scaleX(-1); }
+  .foot { position: absolute; left: 72px; right: 72px; bottom: 56px; display: flex; justify-content: space-between; align-items: flex-end; font-size: 21px; font-weight: 700; }
+  .foot img { height: 44px; display: block; }
+  .foot span { text-align: right; line-height: 1.45; }
+  .foot.light { color: #fff; }
+  .price { font-size: 22px; font-weight: 800; }
+
+  /* A plain, straight tablet */
+  .tab { position: absolute; background: var(--ink); border-radius: 36px; padding: 20px; }
+  .scr { background: #fff; border-radius: 20px; height: 100%; padding: 30px 32px; }
+  .scr small { display: block; font-size: 15px; font-weight: 800; color: var(--purple); letter-spacing: 0.1em; text-transform: uppercase; }
+  .scr h3 { margin: 6px 0 22px; font-size: 30px; font-weight: 800; line-height: 1.15; }
+  .f { margin-bottom: 14px; }
+  .f label { display: block; font-size: 15px; font-weight: 700; color: var(--grey); margin-bottom: 5px; }
+  .f div { border: 2px solid #e2e4ef; border-radius: 12px; padding: 12px 14px; font-size: 20px; font-weight: 600; }
+  .btn { background: var(--green); color: #fff; text-align: center; border-radius: 14px; padding: 16px; font-size: 22px; font-weight: 800; margin-top: 20px; }
+</style>
+</head>
+<body>
+
+<!-- 1. Peekaboo: the mascot peeks over the tablet -->
+<div class="p" id="d1">
+  <h1 class="h" style="position:absolute; left:72px; top:80px; font-size:132px">Sign in.<br>Sit down.<br><span style="color:var(--purple)">Enjoy the talk.</span></h1>
+  <img class="m" src="m-front.png" style="left:580px; top:520px; width:300px">
+  <div class="tab" style="left:430px; top:690px; width:600px; height:760px">
+    <div class="scr"><small>Visitor registration</small><h3>Business Growth Conference</h3>
+      <div class="f"><label>Name</label><div>Thandi Mokoena</div></div>
+      <div class="f"><label>Company</label><div>Lebo Logistics</div></div>
+    </div>
+  </div>
+  <div class="foot" style="left:72px; right:auto; flex-direction:column; align-items:flex-start; gap:14px; bottom:60px"><img src="logo-dark.svg" alt="NextQ"><span style="text-align:left">Online registers for conferences<br>012 004 3348<br>info@nextq.co.za<br>nextq.co.za</span></div>
+</div>
+
+<!-- 2. Nobody likes a queue -->
+<div class="p" id="d2" style="background:var(--yellow)">
+  <h1 class="h" style="position:absolute; left:72px; top:90px; font-size:150px">Nobody<br>likes a<br>queue.</h1>
+  <p class="sub" style="position:absolute; left:72px; top:600px; width:600px">Your visitors register on their phone before they arrive. At the door it takes one tap.</p>
+  <img class="m" src="m-side.png" style="left:40px; top:900px; width:190px">
+  <img class="m" src="m-side.png" style="left:230px; top:900px; width:190px">
+  <img class="m" src="m-side.png" style="left:420px; top:900px; width:190px">
+  <img class="m flip" src="m-jump.png" style="left:700px; top:770px; width:300px">
+  <div style="position:absolute; left:0; right:0; top:1110px; height:4px; background:var(--ink)"></div>
+  <div class="foot"><img src="logo-dark.svg" alt="NextQ"><span>Next in the queue? Not any more.<br>012 004 3348 &nbsp; nextq.co.za</span></div>
+</div>
+
+<!-- 3. Hello, my name is -->
+<div class="p" id="d3" style="background:var(--coral)">
+  <h1 class="h" style="position:absolute; left:72px; right:72px; top:80px; font-size:112px; color:#fff">Every guest<br>gets a name.<br>And a seat.</h1>
+  <img class="m" src="m-front.png" style="left:290px; top:500px; width:500px">
+  <div style="position:absolute; left:440px; top:850px; width:200px; background:#fff; border-radius:14px; overflow:hidden; text-align:center; transform:rotate(-6deg); box-shadow:0 4px 0 rgba(0,0,0,.15)">
+    <div style="background:var(--ink); color:#fff; font-weight:800; font-size:24px; padding:8px 0 4px">HELLO</div>
+    <div style="background:var(--ink); color:#fff; font-size:13px; font-weight:600; padding-bottom:8px">my name is</div>
+    <div style="font-family:'Fraunces',serif; font-style:italic; font-size:44px; padding:6px 0 10px">Q</div>
+  </div>
+  <div class="foot light"><img src="logo-light.svg" alt="NextQ"><span>Registration, sign in and confirmation<br>012 004 3348 &nbsp; nextq.co.za</span></div>
+</div>
+
+<!-- 4. Back view, watching the live list -->
+<div class="p" id="d4" style="background:var(--mint)">
+  <h1 class="h" style="position:absolute; left:72px; top:80px; font-size:120px">Who's here?<br><span style="color:var(--green)">You know.</span></h1>
+  <div class="tab" style="left:400px; top:420px; width:610px; height:720px">
+    <div class="scr"><small>Hall A, live</small>
+      <div style="font-family:'Bricolage Grotesque', sans-serif, sans-serif; font-weight:800; font-size:150px; line-height:1; margin:14px 0 4px">214</div>
+      <div style="font-size:24px; font-weight:700; color:var(--grey); margin-bottom:26px">of 250 seats signed in</div>
+      <div style="font-size:21px; font-weight:600; line-height:2.1; border-top:2px solid #eee; padding-top:10px">Thandi Mokoena &nbsp;<b style="color:var(--green)">08h02</b><br>Sipho Dlamini &nbsp;<b style="color:var(--green)">08h03</b><br>Anele Khumalo &nbsp;<b style="color:var(--green)">08h05</b></div>
+    </div>
+  </div>
+  <img class="m" src="m-back.png" style="left:70px; top:790px; width:330px">
+  <div class="foot" style="bottom:50px"><img src="logo-dark.svg" alt="NextQ"><span>012 004 3348 &nbsp; nextq.co.za</span></div>
+</div>
+
+<!-- 5. Price first -->
+<div class="p" id="d5" style="background:#fff">
+  <p style="position:absolute; left:72px; top:96px; font-size:34px; font-weight:800; margin:0">One online register.</p>
+  <img class="m" src="m-front.png" style="left:510px; top:208px; width:280px">
+  <h1 class="h" style="position:absolute; left:56px; top:440px; font-size:330px; color:var(--purple)">R 350</h1>
+  <p class="s" style="position:absolute; left:72px; top:800px; font-size:76px">Once off.</p>
+  <p class="sub" style="position:absolute; left:72px; top:920px; width:880px; color:var(--grey)">Or subscribe monthly for every register you need, or ask us for a registry built just for you.</p>
+  <div class="foot"><img src="logo-dark.svg" alt="NextQ"><span>012 004 3348<br>info@nextq.co.za &nbsp; nextq.co.za</span></div>
+</div>
+
+<!-- 6. Typographic, the mascot looks up at the words -->
+<div class="p" id="d6" style="background:var(--ink); color:#fff">
+  <h1 class="s" style="position:absolute; left:72px; right:90px; top:110px; font-size:104px">Paper registers get lost, wet and <em style="color:var(--yellow)">coffee stained.</em></h1>
+  <p class="sub" style="position:absolute; left:72px; top:700px; width:520px; color:#c8cbea">Ours sign people in on a tablet, keep the times and signatures, and email the confirmation.</p>
+  <img class="m" src="m-side.png" style="left:640px; top:820px; width:340px; transform:rotate(-8deg)">
+  <div class="foot light"><img src="logo-light.svg" alt="NextQ"><span>012 004 3348<br>nextq.co.za</span></div>
+</div>
+
+<!-- 7. The confirmation email -->
+<div class="p" id="d7">
+  <h1 class="h" style="position:absolute; left:72px; top:80px; font-size:118px">Registered.<br>Confirmed.<br><span style="color:var(--purple)">Seated.</span></h1>
+  <img class="m" src="m-jump.png" style="left:640px; top:430px; width:330px">
+  <div style="position:absolute; left:72px; top:700px; width:700px; background:#fff; border:3px solid var(--ink); border-radius:28px; padding:40px 44px">
+    <div style="font-size:18px; font-weight:700; color:var(--grey)">From: NextQ &nbsp; To: thandi@lebologistics.co.za</div>
+    <div style="font-size:38px; font-weight:800; margin:18px 0 12px">You're registered, Thandi.</div>
+    <div style="font-size:24px; line-height:1.5; font-weight:500">Business Growth Conference<br>Hall A, 7 October, 08h00<br>Seat 42</div>
+  </div>
+  <div class="foot"><img src="logo-dark.svg" alt="NextQ"><span>012 004 3348<br>nextq.co.za</span></div>
+</div>
+
+<!-- 8. Split colour, three steps -->
+<div class="p" id="d8" style="background:var(--ink)">
+  <div style="position:absolute; left:0; right:0; top:0; height:690px; background:var(--yellow)"></div>
+  <h1 class="h" style="position:absolute; left:72px; top:96px; font-size:160px">Hello,<br>visitor.</h1>
+  <img class="m" src="m-front.png" style="left:640px; top:430px; width:330px">
+  <ol style="position:absolute; left:72px; right:72px; top:790px; margin:0; padding:0; list-style:none; color:#fff; display:grid; gap:30px">
+    <li style="display:flex; gap:28px; align-items:baseline"><b class="h" style="font-size:64px; color:var(--yellow)">1</b><span style="font-size:36px; font-weight:700">Register online</span></li>
+    <li style="display:flex; gap:28px; align-items:baseline"><b class="h" style="font-size:64px; color:var(--yellow)">2</b><span style="font-size:36px; font-weight:700">Sign in at the door</span></li>
+    <li style="display:flex; gap:28px; align-items:baseline"><b class="h" style="font-size:64px; color:var(--yellow)">3</b><span style="font-size:36px; font-weight:700">Confirmation in your inbox</span></li>
+  </ol>
+  <div class="foot light"><img src="logo-light.svg" alt="NextQ"><span>012 004 3348<br>nextq.co.za</span></div>
+</div>
+
+<!-- 9. Crossed out list -->
+<div class="p" id="d9" style="background:#fff">
+  <div style="position:absolute; left:72px; top:100px; font-family:'Bricolage Grotesque', sans-serif, sans-serif; font-weight:800; font-size:108px; line-height:1.18; letter-spacing:-0.03em">
+    <div style="text-decoration:line-through; text-decoration-thickness:10px; text-decoration-color:var(--coral); color:#b9bccf">Clipboards</div>
+    <div style="text-decoration:line-through; text-decoration-thickness:10px; text-decoration-color:var(--coral); color:#b9bccf">Pens that die</div>
+    <div style="text-decoration:line-through; text-decoration-thickness:10px; text-decoration-color:var(--coral); color:#b9bccf">The long queue</div>
+    <div style="text-decoration:line-through; text-decoration-thickness:10px; text-decoration-color:var(--coral); color:#b9bccf">Lost forms</div>
+    <div style="color:var(--purple)">NextQ</div>
+  </div>
+  <img class="m" src="m-jump.png" style="left:640px; top:690px; width:330px">
+  <p class="sub" style="position:absolute; left:72px; top:900px; width:520px">Online registration for conferences and events. From R 350 once off.</p>
+  <div class="foot"><img src="logo-dark.svg" alt="NextQ"><span>012 004 3348<br>nextq.co.za</span></div>
+</div>
+
+<!-- 10. Four panel strip -->
+<div class="p" id="d10" style="background:var(--cream)">
+  <h1 class="h" style="position:absolute; left:72px; top:76px; font-size:92px">How a NextQ<br>visit goes</h1>
+  <div style="position:absolute; left:72px; right:72px; top:330px; display:grid; grid-template-columns:1fr 1fr; gap:22px">
+    <div style="background:#fff; border-radius:28px; height:400px; position:relative"><b style="position:absolute; left:30px; top:26px; font-size:28px">1. Register online</b><img src="m-front.png" style="position:absolute; left:120px; bottom:30px; width:220px"></div>
+    <div style="background:var(--yellow); border-radius:28px; height:400px; position:relative"><b style="position:absolute; left:30px; top:26px; font-size:28px">2. Arrive</b><img src="m-side.png" class="flip" style="position:absolute; left:120px; bottom:30px; width:220px"></div>
+    <div style="background:var(--mint); border-radius:28px; height:400px; position:relative"><b style="position:absolute; left:30px; top:26px; font-size:28px">3. Sign in at the tablet</b><img src="m-back.png" style="position:absolute; left:70px; bottom:30px; width:210px"><div style="position:absolute; right:40px; bottom:70px; width:120px; height:160px; background:var(--ink); border-radius:16px; padding:10px"><div style="background:#fff; border-radius:8px; height:100%"></div></div></div>
+    <div style="background:var(--coral); border-radius:28px; height:400px; position:relative"><b style="position:absolute; left:30px; top:26px; font-size:28px; color:#fff">4. Confirmed</b><img src="m-jump.png" style="position:absolute; left:110px; bottom:22px; width:240px"></div>
+  </div>
+  <div class="foot"><img src="logo-dark.svg" alt="NextQ"><span>From R 350 once off<br>012 004 3348 &nbsp; nextq.co.za</span></div>
+</div>
+
+</body>
+</html>
