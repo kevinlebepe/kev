@@ -1,13 +1,9 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NextQ, online registers without paper</title>
+<title>NextQ Website</title>
 <meta name="description" content="NextQ online registers: visitors and passengers sign in on a tablet or by QR code, with times, signatures and email confirmations. Made in South Africa.">
-<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
 <style>
-  :root { --ink: #1e2150; --grey: #6b6f8f; --soft: #f3f3f6; --line: #e6e6ee; --cream: #fff4dc; --purple: #2a62d6; --deep: #2a62d6; --green: #12a88a; --yellow: #ffd25e; --coral: #ff7a59; --mint: #cfeadb; --blue: #2f6fe4; }
+  /* Single light look by choice: every colour set explicitly. */
+  :root { color-scheme: light; --ink: #1e2150; --grey: #6b6f8f; --soft: #f3f3f6; --line: #e6e6ee; --cream: #fff4dc; --purple: #2a62d6; --deep: #2a62d6; --green: #12a88a; --yellow: #ffd25e; --coral: #ff7a59; --mint: #cfeadb; --blue: #2f6fe4; }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
   body { margin: 0; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; color: var(--ink); background: #fff; font-size: 17px; line-height: 1.6; }
@@ -30,7 +26,7 @@
   .center .lead { margin-left: auto; margin-right: auto; }
 
   /* Header */
-  header { position: sticky; top: 0; z-index: 10; background: rgba(255, 255, 255, 0.96); border-bottom: 1px solid var(--line); }
+  header { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; background: rgba(255, 255, 255, 0.96); border-bottom: 1px solid var(--line); }
   .bar { display: flex; align-items: center; gap: 32px; height: 76px; }
   .bar img { height: 34px; }
   .bar nav { display: flex; gap: 28px; margin: 0 auto; font-weight: 600; font-size: 16px; }
@@ -119,9 +115,6 @@
     .why, .cards4 { grid-template-columns: 1fr; }
   }
 </style>
-</head>
-<body>
-
 <header>
   <div class="wrap bar">
     <a href="#top"><img src="assets/logo-dark.svg" alt="NextQ"></a>
@@ -264,5 +257,3 @@
     panels.forEach((p, i) => p.classList.toggle('on', i === Number(b.dataset.t)));
   }));
 </script>
-</body>
-</html>
