@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NextQ poster</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .p { width: 1080px; height: var(--h, 1350px); position: relative; overflow: hidden; font-family: 'Plus Jakarta Sans', sans-serif; color: #eaf1ff;
+       background: radial-gradient(900px 600px at 105% -10%, rgba(47, 208, 232, 0.28), transparent 60%), radial-gradient(800px 700px at -20% 110%, rgba(91, 157, 255, 0.25), transparent 60%), #0b1633;
+       padding: 64px 70px 56px; display: flex; flex-direction: column; gap: 30px; }
+  .p > * { flex-shrink: 0; }
+  .top { display: flex; align-items: center; justify-content: space-between; }
+  .top img { height: 64px; }
+  .top span { font-size: 18px; color: #9fb1d6; font-weight: 600; text-align: right; line-height: 1.35; }
+  h1 { margin: 0; font-size: 84px; line-height: 0.98; font-weight: 800; letter-spacing: -2px; color: #fff; }
+  h1 em { font-style: normal; background: linear-gradient(90deg, #5b9dff, #2fd0e8 55%, #19d3ad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { margin: -8px 0 0; font-size: 27px; line-height: 1.4; color: #c9d6f2; font-weight: 500; max-width: 900px; }
+  .uses { display: flex; flex-wrap: wrap; gap: 10px; }
+  .uses span { border: 1.5px solid rgba(255, 255, 255, 0.22); border-radius: 999px; padding: 8px 18px; font-size: 20px; font-weight: 700; color: #fff; background: rgba(255, 255, 255, 0.05); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
+  .box { background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 22px; padding: 26px 28px; }
+  .box h2 { margin: 0 0 14px; font-size: 26px; font-weight: 800; color: #fff; }
+  .box h2 small { display: block; font-size: 16px; color: #2fd0e8; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 4px; }
+  .box ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 11px; }
+  .box li { position: relative; padding-left: 28px; font-size: 20.5px; line-height: 1.3; color: #e2eaff; font-weight: 500; }
+  .box li::before { content: ''; position: absolute; left: 2px; top: 6px; width: 12px; height: 12px; border-radius: 50%; background: linear-gradient(135deg, #5b9dff, #19d3ad); }
+  .box.add li::before { border-radius: 3px; background: #19d3ad; }
+  .price { display: grid; grid-template-columns: 1.15fr 1fr 1fr; border-radius: 22px; overflow: hidden; background: #fff; color: #0b1633; }
+  .price div { padding: 22px 24px; border-left: 1px solid #e3e8f1; }
+  .price div:first-child { border-left: 0; background: linear-gradient(135deg, #1d4fd8, #0aa58c); color: #fff; }
+  .price small { display: block; font-size: 16px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.8; }
+  .price b { display: block; font-size: 46px; font-weight: 800; line-height: 1.05; margin: 4px 0 2px; letter-spacing: -1px; }
+  .price span { font-size: 18px; font-weight: 600; line-height: 1.35; }
+  .price div:not(:first-child) b { font-size: 30px; letter-spacing: 0; margin-top: 8px; }
+  .foot { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; font-size: 22px; font-weight: 700; color: #fff; }
+  .foot small { display: block; font-size: 16px; color: #9fb1d6; font-weight: 600; margin-top: 4px; }
+  .cta { background: #19d3ad; color: #062b25; padding: 14px 26px; border-radius: 999px; font-size: 22px; font-weight: 800; }
+  /* WhatsApp Status: one tall column, larger type. */
+  .p.tall { --h: 1920px; padding: 80px 70px 70px; gap: 32px; }
+  .p.tall h1 { font-size: 104px; }
+  .p.tall .sub { font-size: 30px; }
+  .p.tall .price div { padding: 18px 24px; }
+  .p.tall .cols { grid-template-columns: 1fr; gap: 24px; }
+  .p.tall .box ul { grid-template-columns: 1fr 1fr; gap: 14px 22px; }
+  .p.tall .box li { font-size: 22px; }
+  .p.tall .price { grid-template-columns: 1fr; }
+  .p.tall .price div { border-left: 0; border-top: 1px solid #e3e8f1; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  .p.tall .price div:first-child { border-top: 0; }
+  .p.tall .price b { font-size: 52px; }
+  .p.tall .price div:not(:first-child) b { font-size: 32px; margin: 0; }
+</style>
+</head>
+<body>
+<div class="p" id="poster">
+  <div class="top"><img src="logo-light.svg" alt="NextQ"><span>Online registers<br>a product of Bakwena Industries</span></div>
+  <h1>Registers without <em>paper.</em></h1>
+  <p class="sub">Online registration and sign in forms for every place people arrive, ride or attend. Set up in minutes, used on any tablet or phone.</p>
+  <div class="uses"><span>Staff transport</span><span>Events</span><span>Conferences</span><span>Bus tours</span><span>Car services</span><span>Visitors and reception</span><span>Exam rooms</span><span>Training</span></div>
+  <div class="cols">
+    <div class="box">
+      <h2><small>The benefits</small>Why NextQ</h2>
+      <ul>
+        <li>No paper: nothing lost, wet or torn</li>
+        <li>Sign in on a tablet, or on your own phone with a QR code</li>
+        <li>Works offline and sends when the signal returns</li>
+        <li>Times and signatures recorded for you</li>
+        <li>Live view of who is on board or on site</li>
+        <li>Day registers as PDF and Excel in one tap</li>
+        <li>Email confirmations, newsletters, SMS on request</li>
+        <li>Your data, under your control, POPIA aware</li>
+      </ul>
+    </div>
+    <div class="box add">
+      <h2><small>Add ons</small>Grow when you need to</h2>
+      <ul>
+        <li>Invoicing and client statements from your registers</li>
+        <li>Billing per trip or per load</li>
+        <li>Security confirmation at the gate, PSIRA officers</li>
+        <li>Incident reports with infringements</li>
+        <li>Driver chat, reminders and alerts</li>
+        <li>Attendance certificates, verified online</li>
+        <li>Your logo and letterhead on everything</li>
+        <li>Shift reports for HR</li>
+      </ul>
+    </div>
+  </div>
+  <div class="price">
+    <div><small>Starting from</small><b>R 350</b><span>once off, for a single register</span></div>
+    <div><small>Or</small><b>Subscribe</b><span>monthly, for every register you need</span></div>
+    <div><small>Or</small><b>Customised</b><span>contact us for a registry built for you</span></div>
+  </div>
+  <div class="foot"><div>nextq.co.za<small>073 796 0203</small></div><span class="cta">Ask for a free demo</span></div>
+</div>
+<script>
+  if (location.hash === '#tall') document.getElementById('poster').classList.add('tall');
+</script>
+</body>
+</html>
