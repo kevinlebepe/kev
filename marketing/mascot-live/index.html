@@ -1,0 +1,181 @@
+<title>NextQ Mascot Moves</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&display=swap">
+<style>
+  /* A single light look by choice: every colour is set below. */
+  :root { color-scheme: light; --page: #eef1f6; --card: #ffffff; --ink: #15204a; --muted: #66708f; --line: #e2e7f0; --blue: #2453d6;
+          --body: #6a72b8; --shade: #5b63ab; --tail: #4453a0; --eye: #1b2559; --lid: #3d4793; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font-family: 'Nunito', system-ui, sans-serif; padding-block: 28px 60px; padding-inline: 16px; }
+  .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 22px; }
+  h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); font-weight: 800; text-wrap: balance; }
+  .lead { margin: 6px 0 0; color: var(--muted); max-width: 760px; line-height: 1.5; }
+  .live { background: var(--card); border: 1px solid var(--line); border-radius: 20px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: center; padding: 22px; }
+  .live .stage { display: grid; place-items: center; min-height: 320px; background: #f6f8fc; border-radius: 16px; position: relative; }
+  .live .bubble { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 8px 14px; font-weight: 800; white-space: nowrap; animation: pop .35s ease both; }
+  .live h2 { margin: 0 0 6px; font-size: 24px; font-weight: 800; }
+  .live p { margin: 0; color: var(--muted); line-height: 1.5; }
+  .steps { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .steps button { font: inherit; font-weight: 800; font-size: 14px; border: 1.5px solid var(--line); background: #fff; color: var(--ink); border-radius: 99px; padding: 7px 14px; cursor: pointer; }
+  .steps button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .steps button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: 14px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 14px; display: grid; gap: 6px; }
+  .tile .stage { display: grid; place-items: center; height: 200px; background: #f6f8fc; border-radius: 12px; }
+  .tile b { font-size: 17px; }
+  .tile span { color: var(--muted); font-size: 14px; line-height: 1.4; }
+  .compare { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
+  .compare img { height: 110px; width: auto; background: #f6f8fc; border-radius: 12px; padding: 6px; }
+  .compare svg { height: 110px; width: auto; background: #f6f8fc; border-radius: 12px; padding: 6px; }
+  @keyframes pop { from { transform: translateX(-50%) scale(.8); opacity: 0; } to { transform: translateX(-50%) scale(1); opacity: 1; } }
+  @media (max-width: 760px) { .live { grid-template-columns: minmax(0, 1fr); } }
+
+  /* ===== The mascot ===== */
+  .q { width: 180px; height: auto; overflow: visible; }
+  .live .q { width: 230px; }
+  .q * { transform-box: fill-box; }
+  .q .whole { transform-origin: 50% 100%; }
+  .q .tail { transform-origin: 0% 50%; animation: wag 2.6s ease-in-out infinite; }
+  .q .eyes { transform-origin: 50% 50%; animation: blink 4.2s infinite; }
+  .q .pupils { animation: look 7s ease-in-out infinite; }
+  .q :is(.armL, .armR, .happy, .grin) { opacity: 0; }
+  .q :is(.armL, .armR) { transform-box: view-box; }
+  .q .armL { transform-origin: 34px 186px; }
+  .q .armR { transform-origin: 208px 186px; }
+  .q .smile, .q .open { opacity: 1; }
+  .q .whole { animation: breathe 3.4s ease-in-out infinite; }
+  /* Wave hello: the right arm comes up and waves, a friendly smile. */
+  .q.wave .armR { opacity: 1; animation: wave 1.2s ease-in-out infinite; }
+  /* Big smile: the small smile opens into a grin and back, eyes close happily while grinning. */
+  .q.smile .grin { animation: grinIn 3s ease-in-out infinite; }
+  .q.smile .smile { animation: grinOut 3s ease-in-out infinite; }
+  .q.smile .happy { animation: grinIn 3s ease-in-out infinite; }
+  .q.smile .open { animation: grinOut 3s ease-in-out infinite; }
+  /* Cheer: both arms up, happy eyes, a big grin, and a hop. For a sign in. */
+  .q.cheer :is(.armL, .armR, .happy, .grin) { opacity: 1; }
+  .q.cheer :is(.open, .smile) { opacity: 0; }
+  .q.cheer .whole { animation: hop 1.1s ease-in-out infinite; }
+  .q.cheer .armL { animation: flapL .55s ease-in-out infinite alternate; }
+  .q.cheer .armR { animation: flapR .55s ease-in-out infinite alternate; }
+  /* Goodbye: leans and waves, happy eyes. For a sign out. */
+  .q.bye .armR { opacity: 1; animation: wave 1s ease-in-out infinite; }
+  .q.bye .happy { opacity: 1; } .q.bye .open { opacity: 0; }
+  .q.bye .whole { animation: lean 2s ease-in-out infinite; }
+  /* Notice: bounces with wide eyes when something new comes in. */
+  .q.notice .whole { animation: bounce .9s ease-in-out infinite; }
+  .q.notice .pupils { animation: none; transform: scale(1.25); transform-origin: 50% 50%; }
+  .q.notice .eyes { animation: none; }
+  /* Thinking: looks around slowly while the register syncs. */
+  .q.think .pupils { animation: lookup 3s ease-in-out infinite; }
+  .q.think .whole { animation: tilt 3s ease-in-out infinite; }
+
+  @keyframes breathe { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(.97); } }
+  @keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.08); } }
+  @keyframes look { 0%, 30%, 100% { transform: translateX(0); } 40%, 55% { transform: translateX(-5px); } 65%, 80% { transform: translateX(5px); } }
+  @keyframes lookup { 0%, 100% { transform: translate(-4px, -3px); } 50% { transform: translate(4px, -5px); } }
+  @keyframes wag { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(-9deg); } }
+  @keyframes wave { 0%, 100% { transform: rotate(-18deg); } 50% { transform: rotate(-48deg); } }
+  @keyframes flapL { from { transform: rotate(22deg); } to { transform: rotate(46deg); } }
+  @keyframes flapR { from { transform: rotate(-22deg); } to { transform: rotate(-46deg); } }
+  @keyframes hop { 0%, 100% { transform: translateY(0) scaleY(1); } 35% { transform: translateY(-26px) scaleY(1.03); } 70% { transform: translateY(0) scaleY(.94); } }
+  @keyframes lean { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+  @keyframes bounce { 0%, 100% { transform: translateY(0); } 30% { transform: translateY(-14px); } 50% { transform: translateY(0) scaleY(.95); } }
+  @keyframes tilt { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
+  @keyframes grinIn { 0%, 30%, 85%, 100% { opacity: 0; } 40%, 75% { opacity: 1; } }
+  @keyframes grinOut { 0%, 30%, 85%, 100% { opacity: 1; } 40%, 75% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .q *, .q .whole { animation: none !important; } }
+</style>
+
+<template id="q">
+  <svg class="q" viewBox="-50 -10 360 320" role="img" aria-label="The NextQ mascot">
+    <g class="whole">
+      <ellipse class="tail" cx="226" cy="278" rx="40" ry="18" fill="var(--tail)"/>
+      <g class="armL"><line x1="34" y1="186" x2="-30" y2="150" stroke="var(--shade)" stroke-width="32" stroke-linecap="round"/></g>
+      <g class="armR"><line x1="208" y1="186" x2="272" y2="150" stroke="var(--shade)" stroke-width="32" stroke-linecap="round"/></g>
+      <path class="body" fill="var(--body)" d="M44 298 C 16 298 10 262 12 222 C 14 160 18 92 32 42 C 38 12 52 2 66 8 C 76 14 80 30 82 48 C 106 44 132 44 156 48 C 158 30 162 14 174 8 C 190 2 204 14 210 42 C 222 100 230 170 230 230 C 230 280 214 298 190 298 Z"/>
+      <g class="eyes">
+        <g class="open">
+          <circle cx="80" cy="118" r="27" fill="#fff"/><circle cx="152" cy="118" r="27" fill="#fff"/>
+          <g class="pupils"><circle cx="86" cy="121" r="12" fill="var(--eye)"/><circle cx="152" cy="121" r="12" fill="var(--eye)"/>
+            <circle cx="90" cy="116" r="3.2" fill="#fff"/><circle cx="156" cy="116" r="3.2" fill="#fff"/></g>
+        </g>
+      </g>
+      <g class="happy" fill="none" stroke="var(--lid)" stroke-width="10" stroke-linecap="round">
+        <path d="M58 126 Q80 98 102 126"/><path d="M130 126 Q152 98 174 126"/>
+      </g>
+      <ellipse cx="116" cy="152" rx="7" ry="5" fill="var(--eye)"/>
+      <path class="smile" d="M102 164 Q116 176 130 164" fill="none" stroke="var(--eye)" stroke-width="6" stroke-linecap="round"/>
+      <g class="grin"><path d="M66 166 Q116 156 166 166 Q162 222 116 222 Q70 222 66 166 Z" fill="#fff"/>
+        <path d="M100 170 L97 214 M132 170 L135 214" stroke="#d9dcea" stroke-width="4.5" stroke-linecap="round"/></g>
+    </g>
+  </svg>
+</template>
+
+<div class="wrap">
+  <header>
+    <h1>The mascot, now with moving parts</h1>
+    <p class="lead">Redrawn as a drawing with separate eyes, mouth, arms and tail, so it can blink, wave, smile, cheer and wag. The big one below plays the moves in turn; press a move to see it on its own.</p>
+  </header>
+
+  <section class="live" aria-label="Live mascot">
+    <div class="stage"><span class="bubble" id="say">Good morning!</span><div id="big"></div></div>
+    <div>
+      <h2 id="name">Resting</h2>
+      <p id="when">On the home screen: breathes, blinks and looks around.</p>
+      <div class="steps" role="group" aria-label="Moves">
+        <button type="button" data-m="idle">Resting</button>
+        <button type="button" data-m="wave">Wave hello</button>
+        <button type="button" data-m="smile">Big smile</button>
+        <button type="button" data-m="cheer">Cheer</button>
+        <button type="button" data-m="bye">Wave goodbye</button>
+        <button type="button" data-m="notice">Something new</button>
+        <button type="button" data-m="think">Thinking</button>
+        <button type="button" data-m="auto" class="on">Play all</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <div class="tile"><div class="stage" data-q="idle"></div><b>Resting</b><span>Breathes, blinks, looks around, wags its tail. The home screen.</span></div>
+    <div class="tile"><div class="stage" data-q="wave"></div><b>Wave hello</b><span>Raises its arm and waves. Above Sign in.</span></div>
+    <div class="tile"><div class="stage" data-q="smile"></div><b>Big smile</b><span>The small smile opens into a big grin, eyes close happily.</span></div>
+    <div class="tile"><div class="stage" data-q="cheer"></div><b>Cheer</b><span>Arms up, grin and a hop. The signed in confirmation.</span></div>
+    <div class="tile"><div class="stage" data-q="bye"></div><b>Wave goodbye</b><span>Leans and waves with happy eyes. The signed out confirmation.</span></div>
+    <div class="tile"><div class="stage" data-q="notice"></div><b>Something new</b><span>Bounces with wide eyes. When a notification comes in.</span></div>
+    <div class="tile"><div class="stage" data-q="think"></div><b>Thinking</b><span>Looks up and tilts. While sending or syncing.</span></div>
+  </div>
+
+  <div class="compare"><img src="assets/front.png" alt="The mascot as a picture"><span>The picture we use now, and the new drawing beside it.</span><div id="cmp"></div></div>
+</div>
+
+<script>
+  const tpl = document.getElementById('q');
+  const make = (m) => { const n = tpl.content.firstElementChild.cloneNode(true); if (m && m !== 'idle') n.classList.add(m); return n; };
+  document.querySelectorAll('[data-q]').forEach((el) => el.appendChild(make(el.dataset.q)));
+  document.getElementById('cmp').appendChild(make('idle'));
+  const MOVES = {
+    idle: ['Resting', 'On the home screen: breathes, blinks and looks around.', 'Good morning!'],
+    wave: ['Wave hello', 'Above the Sign in button, inviting the next passenger.', 'Hello! Getting on?'],
+    smile: ['Big smile', 'While someone signs the register.', 'Nearly done!'],
+    cheer: ['Cheer', 'The signed in confirmation.', 'Welcome aboard!'],
+    bye: ['Wave goodbye', 'The signed out confirmation.', 'Safe travels!'],
+    notice: ['Something new', 'When a message or notification arrives.', 'You have a new message'],
+    think: ['Thinking', 'While the register is sending or syncing.', 'Sending…'],
+  };
+  const order = ['idle', 'wave', 'smile', 'cheer', 'bye', 'notice', 'think'];
+  const big = document.getElementById('big');
+  let i = 0, timer = 0;
+  const show = (m) => {
+    big.replaceChildren(make(m));
+    const [name, when, say] = MOVES[m];
+    document.getElementById('name').textContent = name;
+    document.getElementById('when').textContent = when;
+    const b = document.getElementById('say'); b.textContent = say; b.style.animation = 'none'; void b.offsetWidth; b.style.animation = '';
+  };
+  const auto = () => { show(order[i % order.length]); i++; timer = window.setTimeout(auto, 3800); };
+  document.querySelectorAll('.steps button').forEach((btn) => btn.addEventListener('click', () => {
+    document.querySelectorAll('.steps button').forEach((x) => x.classList.toggle('on', x === btn));
+    window.clearTimeout(timer);
+    if (btn.dataset.m === 'auto') { i = 0; auto(); } else show(btn.dataset.m);
+  }));
+  auto();
+</script>
