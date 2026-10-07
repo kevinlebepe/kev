@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NextQ, online registers without paper</title>
+<meta name="description" content="NextQ online registers: visitors and passengers sign in on a tablet or by QR code, with times, signatures and email confirmations. Made in South Africa.">
+<link rel="stylesheet" href="assets/fonts.css">
+<style>
+  :root { --ink: #1e2150; --grey: #6b6f8f; --soft: #f3f3f6; --line: #e6e6ee; --cream: #fff4dc; --purple: #6670b5; --deep: #3f4f99; --green: #12a88a; --yellow: #ffd25e; --coral: #ff7a59; --mint: #cfeadb; --blue: #2f6fe4; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; color: var(--ink); background: #fff; font-size: 17px; line-height: 1.6; }
+  img { max-width: 100%; display: block; }
+  a { color: inherit; }
+  .wrap { max-width: 1140px; margin: 0 auto; padding: 0 24px; }
+  .kick { color: var(--grey); font-size: 22px; font-weight: 500; margin: 0 0 6px; }
+  h1, h2, h3 { font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 800; letter-spacing: -0.02em; line-height: 1.02; margin: 0; }
+  h1 { font-size: clamp(44px, 7vw, 84px); }
+  h1 span, h2 span { color: #a7a9bf; }
+  h2 { font-size: clamp(34px, 5vw, 56px); }
+  h3 { font-size: 24px; letter-spacing: -0.01em; }
+  .lead { color: var(--grey); font-size: 19px; max-width: 760px; }
+  .btn { display: inline-flex; align-items: center; gap: 10px; background: var(--blue); color: #fff; text-decoration: none; font-weight: 800; font-size: 18px; padding: 16px 30px; border-radius: 999px; border: 0; cursor: pointer; }
+  .btn:hover { background: #2259c4; }
+  .btn.dark { background: var(--ink); }
+  .link { color: var(--blue); font-weight: 700; text-decoration: none; }
+  section { padding: 96px 0; }
+  .center { text-align: center; }
+  .center .lead { margin-left: auto; margin-right: auto; }
+
+  /* Header */
+  header { position: sticky; top: 0; z-index: 10; background: rgba(255, 255, 255, 0.96); border-bottom: 1px solid var(--line); }
+  .bar { display: flex; align-items: center; gap: 32px; height: 76px; }
+  .bar img { height: 34px; }
+  .bar nav { display: flex; gap: 28px; margin: 0 auto; font-weight: 600; font-size: 16px; }
+  .bar nav a { text-decoration: none; }
+  .bar .btn { padding: 11px 22px; font-size: 16px; }
+  .bar .login { text-decoration: none; color: var(--blue); font-weight: 700; }
+
+  /* Hero */
+  .hero { padding: 80px 0 40px; }
+  .stage { position: relative; height: 470px; margin-top: 56px; }
+  .lines i { position: absolute; height: 22px; border-radius: 99px; }
+  .tab { position: absolute; left: 50%; top: 60px; width: 520px; height: 370px; margin-left: -260px; background: var(--ink); border-radius: 30px; padding: 16px; z-index: 2; }
+  .scr { background: #fff; border-radius: 18px; height: 100%; padding: 22px 26px; text-align: left; }
+  .scr small { display: block; font-size: 12px; font-weight: 800; color: var(--purple); letter-spacing: 0.1em; text-transform: uppercase; }
+  .scr b { display: block; font-size: 21px; margin: 2px 0 14px; line-height: 1.2; }
+  .scr .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .scr label { display: block; font-size: 11px; font-weight: 700; color: var(--grey); }
+  .scr .in { border: 2px solid var(--line); border-radius: 10px; padding: 7px 10px; font-size: 14px; font-weight: 600; margin: 3px 0 10px; }
+  .scr .go { background: var(--green); color: #fff; text-align: center; border-radius: 10px; padding: 10px; font-weight: 800; font-size: 15px; margin-top: 6px; }
+  .peek { position: absolute; left: 50%; top: -48px; width: 150px; margin-left: 70px; z-index: 1; }
+
+  /* Promise cards */
+  .cards4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-top: 20px; }
+  .card { background: var(--soft); border-radius: 22px; padding: 26px 22px; text-align: center; }
+  .card .dot { width: 46px; height: 46px; border-radius: 14px; margin: 0 auto 14px; }
+  .card b { display: block; font-size: 18px; line-height: 1.3; }
+  .card span { color: var(--grey); font-size: 15px; }
+
+  /* Uses tabs */
+  .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin: 40px 0 26px; }
+  .tabs button { background: none; border: 0; border-top: 3px solid var(--line); padding: 12px 0 0; text-align: left; font: inherit; font-weight: 600; color: var(--grey); cursor: pointer; }
+  .tabs button.on { border-color: var(--blue); color: var(--ink); }
+  .panel { display: none; grid-template-columns: 1.1fr 1fr; gap: 40px; align-items: center; background: var(--soft); border-radius: 28px; padding: 48px; }
+  .panel.on { display: grid; }
+  .panel .kick { font-size: 18px; }
+  .panel h3 { font-size: 40px; margin-bottom: 14px; }
+  .panel p { color: #3c4066; }
+  .shot { background: #fff; border-radius: 18px; padding: 22px; min-height: 260px; position: relative; box-shadow: 0 1px 0 var(--line); }
+  .shot .row { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 9px 0; font-size: 15px; font-weight: 600; }
+  .shot .row em { font-style: normal; color: var(--green); font-weight: 800; }
+  .shot .big { font-family: 'Bricolage Grotesque'; font-weight: 800; font-size: 64px; line-height: 1; }
+  .shot img { position: absolute; right: -26px; bottom: -16px; width: 96px; }
+  .shot .row { margin-right: 64px; }
+
+  /* Why NextQ */
+  .why { display: grid; grid-template-columns: repeat(3, 1fr); gap: 44px 40px; margin-top: 56px; }
+  .why h3 { font-size: 21px; margin-bottom: 6px; display: flex; gap: 12px; align-items: center; }
+  .why h3 i { width: 14px; height: 14px; border-radius: 50%; background: var(--purple); flex: none; }
+  .why p { margin: 0; color: var(--grey); font-size: 16px; }
+
+  /* How a visit goes */
+  .strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-top: 48px; }
+  .step { border-radius: 24px; height: 300px; position: relative; overflow: hidden; }
+  .step b { position: absolute; left: 22px; top: 18px; font-size: 19px; }
+  .step img { position: absolute; left: 50%; bottom: 20px; width: 150px; margin-left: -75px; }
+
+  /* Demo band */
+  .demo { background: var(--soft); text-align: center; position: relative; }
+  .demo h2 { margin-bottom: 26px; }
+  .demo .m { position: absolute; right: 8%; bottom: 0; width: 170px; }
+
+  /* Footer */
+  footer { background: var(--ink); color: #fff; padding: 64px 0 40px; }
+  .foot { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 40px; }
+  .foot img { height: 36px; margin-bottom: 14px; }
+  .foot p { margin: 0; color: #c3c6e6; }
+  .foot b { display: block; margin-bottom: 8px; }
+  .foot a { text-decoration: none; }
+  .legal { border-top: 1px solid #3a3e70; margin-top: 40px; padding-top: 22px; font-size: 14px; color: #a9acd2; }
+
+  @media (max-width: 900px) {
+    .bar nav, .bar .login { display: none; }
+    .bar .btn { margin-left: auto; }
+    .cards4, .tabs, .strip { grid-template-columns: 1fr 1fr; }
+    .why { grid-template-columns: 1fr 1fr; }
+    .panel { grid-template-columns: 1fr; padding: 28px; }
+    .foot { grid-template-columns: 1fr; }
+    .demo .m { display: none; }
+  }
+  @media (max-width: 600px) {
+    section { padding: 64px 0; }
+    .stage { height: 330px; }
+    .tab { width: 320px; height: 250px; margin-left: -160px; top: 50px; }
+    .scr { padding: 14px; } .scr b { font-size: 15px; } .scr .in { font-size: 12px; padding: 4px 8px; margin-bottom: 4px; } .scr .go { display: none; }
+    .peek { width: 100px; margin-left: 40px; top: -26px; }
+    .why, .cards4 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap bar">
+    <a href="#top"><img src="assets/logo-dark.svg" alt="NextQ"></a>
+    <nav><a href="#uses">Uses</a><a href="#why">Why NextQ</a><a href="#how">How it works</a><a href="#contact">Contact</a></nav>
+    <a class="login" href="/login">Log in</a>
+    <a class="btn" href="#demo">Request a demo</a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero center">
+    <div class="wrap">
+      <p class="kick">Online registers, no paper</p>
+      <h1>Sign in here. <span>Sign in now.</span></h1>
+      <p class="lead" style="margin-top:18px">Visitors, guests and passengers sign in on a tablet or with their own phone. NextQ keeps the times and signatures and emails every confirmation.</p>
+      <p style="margin-top:28px"><a class="btn" href="#demo">Request a demo</a></p>
+      <div class="stage">
+        <div class="lines">
+          <i style="left:12%; right:8%; top:120px; background:var(--line)"></i>
+          <i style="left:2%; right:18%; top:170px; background:var(--yellow)"></i>
+          <i style="left:16%; right:4%; top:220px; background:var(--mint)"></i>
+          <i style="left:4%; right:22%; top:270px; background:var(--line)"></i>
+          <i style="left:22%; right:10%; top:320px; background:#ffd6c9"></i>
+          <i style="left:6%; right:30%; top:370px; background:var(--soft)"></i>
+        </div>
+        <img class="peek" src="assets/m-front.png" alt="">
+        <div class="tab">
+          <div class="scr">
+            <small>Visitor registration</small><b>Business Growth Conference, Hall A</b>
+            <div class="two"><div><label>Name</label><div class="in">Thandi</div></div><div><label>Surname</label><div class="in">Mokoena</div></div></div>
+            <label>Company</label><div class="in">Lebo Logistics</div>
+            <label>Email</label><div class="in">thandi@lebologistics.co.za</div>
+            <div class="go">Register and sign in</div>
+          </div>
+        </div>
+      </div>
+      <div class="cards4">
+        <div class="card"><div class="dot" style="background:var(--mint)"></div><b>POPIA aware</b><span>your data under your control</span></div>
+        <div class="card"><div class="dot" style="background:var(--yellow)"></div><b>Works offline</b><span>sends when the signal returns</span></div>
+        <div class="card"><div class="dot" style="background:#ffd6c9"></div><b>Email confirmations</b><span>for every visitor</span></div>
+        <div class="card"><div class="dot" style="background:#dfe1f3"></div><b>PDF and Excel</b><span>registers in one tap</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="center" style="padding-top:40px">
+    <div class="wrap">
+      <p class="kick">So much more than a sign in sheet</p>
+      <h2>Welcome to NextQ.</h2>
+      <p class="lead" style="margin-top:18px">NextQ turns the clipboard at your door into an online register. Build the form once, put a tablet at reception, on the bus or at the hall entrance, and see who is there as it happens. Every sign in is timed, signed and kept safe.</p>
+    </div>
+  </section>
+
+  <section id="uses" style="padding-top:20px">
+    <div class="wrap">
+      <p class="kick">One register, many doors</p>
+      <h2>Where NextQ works.</h2>
+      <div class="tabs" role="tablist">
+        <button class="on" data-t="0">Conferences and events</button>
+        <button data-t="1">Staff transport</button>
+        <button data-t="2">Visitors and reception</button>
+        <button data-t="3">Exam rooms and training</button>
+      </div>
+      <div class="panel on">
+        <div><p class="kick">Guests, sorted.</p><h3>Conferences and events</h3><p>Guests register online before the day, sign in at the door in seconds and receive their confirmation by email. You see every hall fill up live.</p><a class="link" href="#demo">Request a demo</a></div>
+        <div class="shot"><small style="color:var(--grey); font-weight:700">Hall A, live</small><div class="big">214</div><div style="color:var(--grey); margin-bottom:8px">of 250 seats signed in</div><div class="row">Thandi Mokoena <em>08h02</em></div><div class="row">Sipho Dlamini <em>08h03</em></div><img src="assets/m-back.png" alt=""></div>
+      </div>
+      <div class="panel">
+        <div><p class="kick">Every seat accounted for.</p><h3>Staff transport</h3><p>Passengers sign on and off each vehicle. Security confirms them at the gate and the office sees every incoming and outgoing shift as it moves.</p><a class="link" href="#demo">Request a demo</a></div>
+        <div class="shot"><div class="row">Incoming shift, Thokoza <em>14 on board</em></div><div class="row">Outgoing shift, Germiston <em>11 on board</em></div><div class="row">Gate confirmed <em>25 of 25</em></div><img src="assets/m-side.png" alt=""></div>
+      </div>
+      <div class="panel">
+        <div><p class="kick">A warm welcome, on record.</p><h3>Visitors and reception</h3><p>Visitors sign in on the tablet or scan a QR code with their own phone. Reception knows who is in the building and who has left.</p><a class="link" href="#demo">Request a demo</a></div>
+        <div class="shot"><div class="row">In the building <em>18</em></div><div class="row">Signed out today <em>42</em></div><div class="row">Expected this afternoon <em>6</em></div><img src="assets/m-front.png" alt=""></div>
+      </div>
+      <div class="panel">
+        <div><p class="kick">Attendance you can prove.</p><h3>Exam rooms and training</h3><p>Candidates and learners sign in with a signature. Attendance certificates are issued and can be verified online.</p><a class="link" href="#demo">Request a demo</a></div>
+        <div class="shot"><div class="row">Present <em>31</em></div><div class="row">Certificates issued <em>31</em></div><div class="row">Verified online <em>Yes</em></div><img src="assets/m-jump.png" alt=""></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="why" style="background:var(--cream)">
+    <div class="wrap">
+      <p class="kick">The benefits</p>
+      <h2>Why NextQ.</h2>
+      <div class="why">
+        <div><h3><i></i>No paper</h3><p>Nothing lost, wet, torn or coffee stained.</p></div>
+        <div><h3><i style="background:var(--green)"></i>Tablet or QR code</h3><p>Sign in at the door, or on your own phone.</p></div>
+        <div><h3><i style="background:var(--coral)"></i>Works offline</h3><p>Keeps working without signal and sends later.</p></div>
+        <div><h3><i style="background:var(--yellow)"></i>Times and signatures</h3><p>Recorded for you on every sign in and sign out.</p></div>
+        <div><h3><i style="background:var(--deep)"></i>Live view</h3><p>See who is on site or on board right now.</p></div>
+        <div><h3><i style="background:var(--green)"></i>PDF and Excel</h3><p>Day registers ready to send in one tap.</p></div>
+        <div><h3><i style="background:var(--coral)"></i>Email confirmations</h3><p>Every visitor gets theirs straight away.</p></div>
+        <div><h3><i style="background:var(--purple)"></i>POPIA aware</h3><p>Consent on every form, your data under your control.</p></div>
+        <div><h3><i style="background:var(--yellow)"></i>Your brand</h3><p>Your logo and letterhead on everything.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how" class="center">
+    <div class="wrap">
+      <p class="kick">Register. Arrive. Sign in. Confirmed.</p>
+      <h2>How a NextQ visit goes.</h2>
+      <div class="strip">
+        <div class="step" style="background:var(--soft)"><b>1. Register online</b><img src="assets/m-front.png" alt=""></div>
+        <div class="step" style="background:var(--yellow)"><b>2. Arrive</b><img src="assets/m-side.png" alt="" style="transform:scaleX(-1)"></div>
+        <div class="step" style="background:var(--mint)"><b>3. Sign in</b><img src="assets/m-back.png" alt=""></div>
+        <div class="step" style="background:var(--coral); color:#fff"><b>4. Confirmed</b><img src="assets/m-jump.png" alt=""></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="demo" class="demo">
+    <div class="wrap">
+      <p class="kick">See it on your own event</p>
+      <h2>Request a demo.<br><span>We will set it up with you.</span></h2>
+      <a class="btn" href="mailto:info@nextq.co.za?subject=NextQ%20demo%20request">Request a demo</a>
+      <p style="margin-top:18px; color:var(--grey)">Or call +27 12 004 3348</p>
+    </div>
+    <img class="m" src="assets/m-jump.png" alt="">
+  </section>
+</main>
+
+<footer id="contact">
+  <div class="wrap">
+    <div class="foot">
+      <div><img src="assets/logo-light.svg" alt="NextQ"><p>Online registers without paper. NextQ, a product of Bakwena Industries.</p></div>
+      <div><b>Contact</b><p><a href="tel:+27120043348">+27 12 004 3348</a><br><a href="mailto:info@nextq.co.za">info@nextq.co.za</a><br>www.nextq.co.za</p></div>
+      <div><b>Where</b><p>South Africa</p></div>
+    </div>
+    <div class="legal">© 2026 NextQ, a product of Bakwena Industries. Your data is handled in line with POPIA.</div>
+  </div>
+</footer>
+
+<script>
+  const tabs = document.querySelectorAll('.tabs button'), panels = document.querySelectorAll('.panel');
+  tabs.forEach((b) => b.addEventListener('click', () => {
+    tabs.forEach((x) => x.classList.toggle('on', x === b));
+    panels.forEach((p, i) => p.classList.toggle('on', i === Number(b.dataset.t)));
+  }));
+</script>
+</body>
+</html>

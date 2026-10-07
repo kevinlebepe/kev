@@ -1,6 +1,6 @@
 # NextQ website remake: brief (parked)
 
-Saved on 7 October 2026 for later. Nothing is built yet.
+Saved on 7 October 2026. A first version is built in `website/index.html`.
 
 ## The idea
 
