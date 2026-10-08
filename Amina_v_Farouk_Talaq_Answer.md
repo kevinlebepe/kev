@@ -70,7 +70,7 @@ Section 5A of the Divorce Act already reflects the legislature's expectation tha
 
 A declaratory order is sought under s 21(1)(c) of the Superior Courts Act 10 of 2013. The court has a discretion whether to grant it. It would be improper to exercise that discretion to confirm that a unilateral private act dissolved a marriage where the statute provides a different route, and where a party who has not consented, and who is prejudiced by the declaration, opposes it. The declarator should be refused.
 
-Amina's continued occupation of the home is also protected. Section 26(3) of the Constitution provides that no one may be evicted from their home, or have their home demolished, without an order of court made after considering all the relevant circumstances. A talaq cannot oust her.
+Amina's continued occupation of the home is also protected. Section 26(3) of the Constitution provides that no one may be evicted from their home, or have their home demolished, without an order of court made after considering all the relevant circumstances. A talaq cannot oust her. Sonnekus's chapter on the personal consequences of divorce in Heaton (ed) (Chapter 3) deals with claims to continued occupation of the former matrimonial home. It shows that these are matters for the court to regulate on divorce, which is a further reason why the issue cannot be settled by private repudiation [pinpoint to be added].
 
 ### 3.6 Conclusion on Question 1
 
@@ -179,6 +179,8 @@ The court should state that it does not rule on whether the talaq is valid in Is
 ### 6.4 Treating the talaq as evidence, not as dissolution
 
 Farouk's pronouncement is strong evidence that the marriage has broken down irretrievably for the purposes of s 4. The court should dismiss or decline the declaratory application, but it should allow him to institute divorce proceedings, or allow the application to be amended and converted into one, so that the matter proceeds under the Divorce Act with the full range of ancillary relief for Amina and any children. This is a practical way of giving Farouk what he is entitled to, a legal end to a marriage that has failed, without giving him what he is not entitled to, an unregulated and unilateral one.
+
+Himonga's chapter on customary marriages in Heaton (ed) (Part 2) supports the idea that the Divorce Act's concepts, including irretrievable breakdown, can be applied to a non-civil marriage in a way that is sensitive to its own character. By analogy, a court applying s 4 to a Muslim marriage may consider the parties' religious practices when assessing breakdown without surrendering the court's control over the decree [pinpoint to be added].
 
 ### 6.5 Protecting Amina in the interim
 
