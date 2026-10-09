@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 258 84" role="img" aria-label="NextQ">
+  <defs>
+    <linearGradient id="nq-ringd" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#0e9fc6"/>
+    </linearGradient>
+    <linearGradient id="nq-taild" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#19d3ad"/>
+      <stop offset="1" stop-color="#0aa58c"/>
+    </linearGradient>
+    <mask id="nq-cutd" maskUnits="userSpaceOnUse" x="0" y="0" width="258" height="84">
+      <rect width="258" height="84" fill="#fff"/>
+      <path d="M216 47l28 26" stroke="#000" stroke-width="22" stroke-linecap="round"/>
+    </mask>
+  </defs>
+  <g fill="none" stroke="#0e1b36" stroke-width="10.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 66V12l38 54V12"/>
+    <path d="M64 48h33a17 17 0 1 0-5 13"/>
+    <path d="M111 29l28 37M139 29l-28 37"/>
+    <path d="M158 12v45a9 9 0 0 0 9 9h4M149 29h22"/>
+  </g>
+  <circle cx="208" cy="39" r="27" fill="none" stroke="url(#nq-ringd)" stroke-width="10.5" mask="url(#nq-cutd)"/>
+  <path d="M216 47l28 26" stroke="url(#nq-taild)" stroke-width="12" stroke-linecap="round"/>
+</svg>
